@@ -1,0 +1,58 @@
+# ==============================
+# 1. DÉPENDANCES
+# ==============================
+node_modules/
+
+# ==============================
+# 2. BUILD / COMPILATION
+# ==============================
+dist/
+
+# ==============================
+# 3. SÉCURITÉ — Fichiers d'environnement
+# Ne JAMAIS commiter de secrets (mots de passe DB, clés API, tokens)
+# ==============================
+.env
+.env.*
+
+# ==============================
+# 4. LOGS
+# ==============================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==============================
+# 5. SYSTÈME — Fichiers parasites OS
+# ==============================
+# macOS
+.DS_Store
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ==============================
+# 6. IDE / ÉDITEURS
+# ==============================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ==============================
+# 7. TESTS — Couverture de code
+# ==============================
+coverage/
+
+# ==============================
+# 8. DIVERS — TypeScript / NestJS
+# ==============================
+# Fichiers de cache TypeScript
+*.tsbuildinfo
+# Diagnostic reports Node.js (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json

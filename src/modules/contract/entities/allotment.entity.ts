@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne } from 'typeorm';
 import { ContractLine } from './contract-line.entity';
 
 @Entity()
@@ -9,7 +9,10 @@ export class Allotment {
     @Column()
     quantity: number;
 
-    @ManyToOne(() => ContractLine, (line) => line.allotments, {
+    @Column({ default: false })
+    isStopSale: boolean;
+
+    @OneToOne(() => ContractLine, (line) => line.allotment, {
         onDelete: 'CASCADE',
     })
     contractLine: ContractLine;

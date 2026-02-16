@@ -1,6 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany, ManyToMany, JoinTable } from 'typeorm';
 import { UserRole } from '../../../shared/constants/enums';
 import { AuditLog } from './audit-log.entity';
+import { Hotel } from '../../hotel/entities/hotel.entity';
 
 @Entity()
 export class User {
@@ -30,4 +31,8 @@ export class User {
 
     @OneToMany(() => AuditLog, (log) => log.user)
     logs: AuditLog[];
+
+    @ManyToMany(() => Hotel, (hotel) => hotel.users, { eager: false })
+    @JoinTable({ name: 'user_hotels' })
+    hotels: Hotel[];
 }

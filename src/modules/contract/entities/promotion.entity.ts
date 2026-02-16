@@ -1,5 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';
-import { ContractLine } from './contract-line.entity';
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
 @Entity()
 export class Promotion {
@@ -15,8 +14,6 @@ export class Promotion {
     @Column({ nullable: true })
     condition: string;
 
-    @ManyToOne(() => ContractLine, (line) => line.promotions, {
-        onDelete: 'CASCADE',
-    })
-    contractLine: ContractLine;
+    // Inverse side removed — relation is now ManyToMany owned by ContractLine
+    // Access via ContractLine.promotions
 }

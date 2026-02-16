@@ -1,98 +1,180 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# 🏨 Hotel Contract Management & Pricing Engine
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+<!-- markdownlint-disable MD033 -->
+<p align="center"><img src="https://nestjs.com/img/logo-small.svg" width="80" alt="NestJS Logo" /></p>
+<!-- markdownlint-restore MD033 -->
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+[![NestJS](https://img.shields.io/badge/NestJS-v11-E0234E?style=flat-square&logo=nestjs&logoColor=white)](https://nestjs.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![SQL Server](https://img.shields.io/badge/SQL%20Server-2022-CC2927?style=flat-square&logo=microsoftsqlserver&logoColor=white)](https://www.microsoft.com/sql-server)
+[![TypeORM](https://img.shields.io/badge/TypeORM-0.3-FE0803?style=flat-square&logo=typeorm&logoColor=white)](https://typeorm.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
-## Description
+> A powerful REST API for managing complex hotel contracts, seasonal pricing matrices, and Tour Operator allotments — built for the hospitality industry.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+**Projet de Fin d'Études (PFE)** réalisé pour un **groupe hôtelier majeur**.
 
-## Project setup
+---
 
-```bash
-$ pnpm install
+## 📌 Features
+
+### Référentiel Hôtelier
+
+- Gestion des **Hôtels** (informations légales, coordonnées bancaires, devise par défaut)
+- Catalogue de **Types de Chambres** (occupancy min/max, adultes, enfants, lit bébé)
+- Configuration des **Arrangements** (BB, HB, FB, AI, RO…)
+
+### Contrats & Saisonnalité
+
+- Création de **Contrats** liés à des **Affiliés** (Tours Opérateurs)
+- Définition de **Périodes saisonnières** dynamiques par contrat
+- Association flexible **Contrat × Chambre** avec alias personnalisés
+- Gestion du cycle de vie des contrats (`DRAFT` → `ACTIVE` → `EXPIRED` / `TERMINATED`)
+
+### Moteur de Tarification Matriciel
+
+- **Matrice Période × Chambre** : chaque intersection génère une ligne de contrat (`ContractLine`)
+- **Prix par arrangement** avec séjour minimum et délais de release
+- **Suppléments** configurables (par nuit, par séjour, par personne) avec types de valeurs multiples (montant fixe, pourcentage, formule)
+- **Promotions** conditionnelles avec montants de réduction
+- **Politiques enfants** par tranche d'âge avec réduction (pourcentage, montant fixe, gratuit)
+
+### Gestion de Stock & Distribution
+
+- **Allotements** (quotas de chambres) par ligne de contrat
+- Préparation pour la gestion des **Stop-Sales**
+- Module **API Partners** pour l'intégration B2B (authentification API Key / Bearer / Basic Auth, rate limiting, IP whitelisting)
+
+---
+
+## 🏗 Architecture
+
+Le projet suit une architecture **modulaire inspirée du Domain-Driven Design (DDD)**, avec une séparation claire des responsabilités :
+
+```text
+src/
+├── config/              # Configuration (TypeORM, validation env)
+├── common/              # Éléments transversaux
+│   ├── decorators/      #   Décorateurs custom
+│   ├── filters/         #   Filtres d'exception (HttpExceptionFilter)
+│   ├── guards/          #   Guards d'authentification/autorisation
+│   ├── interceptors/    #   Intercepteurs (logging, transformation)
+│   ├── middlewares/     #   Middlewares HTTP
+│   ├── pipes/           #   Pipes de validation
+│   └── providers/       #   Providers globaux
+├── database/            # Migrations et seeds
+│   ├── migrations/
+│   └── seeds/
+├── shared/              # Code partagé entre modules
+│   ├── constants/       #   Enums métier (ContractStatus, PaymentType…)
+│   └── utils/           #   Utilitaires (DateUtil.isOverlap…)
+└── modules/             # Modules métier (bounded contexts)
+    ├── auth/            #   Authentification & autorisation
+    ├── users/           #   Gestion des utilisateurs & audit
+    ├── hotel/           #   Référentiel hôtelier (Hotel, RoomType, Arrangement)
+    ├── contract/        #   Contrats, périodes, lignes matricielles
+    ├── pricing/         #   Moteur de calcul de prix
+    └── api-partners/    #   Intégration partenaires B2B
 ```
 
-## Compile and run the project
+Chaque module contient ses propres **entities**, et exposera à terme ses **DTOs**, **services** et **controllers**.
+
+---
+
+## 🚀 Getting Started
+
+### Prérequis
+
+| Outil | Version requise |
+| --- | --- |
+| [Node.js](https://nodejs.org/) | ≥ 18.x |
+| [pnpm](https://pnpm.io/) | ≥ 8.x (ou npm/yarn) |
+| [SQL Server](https://www.microsoft.com/sql-server) | 2019+ |
+
+### Installation
 
 ```bash
-# development
-$ pnpm run start
+# Cloner le repository
+git clone <repository-url>
+cd contracting_backend
 
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+# Installer les dépendances
+pnpm install
 ```
 
-## Run tests
+### Configuration de l'environnement
+
+Créer un fichier `.env` à la racine du projet :
+
+```env
+DB_HOST=localhost
+DB_PORT=1433
+DB_USERNAME=sa
+DB_PASSWORD=your_secure_password
+DB_DATABASE=hotel_db
+DB_SYNCHRONIZE=true
+```
+
+> ⚠️ **Sécurité** : Ne jamais commiter le fichier `.env`. Il est exclu via `.gitignore`.
+>
+> ⚠️ **Production** : Passer `DB_SYNCHRONIZE=false` et utiliser les migrations TypeORM.
+
+### Lancement
 
 ```bash
-# unit tests
-$ pnpm run test
+# Mode développement (hot-reload)
+pnpm run start:dev
 
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+# Mode production
+pnpm run build
+pnpm run start:prod
 ```
 
-## Deployment
+L'API sera disponible sur `http://localhost:3000`.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+---
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## 🛠 Database Setup
+
+1. Ouvrir **SQL Server Management Studio (SSMS)** ou **Azure Data Studio**.
+2. Créer la base de données :
+
+```sql
+CREATE DATABASE hotel_db;
+```
+
+1. S'assurer que le compte SQL (`sa` ou un compte dédié) a les droits `db_owner` sur `hotel_db`.
+2. Lancer l'application — TypeORM synchronisera automatiquement le schéma si `DB_SYNCHRONIZE=true`.
+
+---
+
+## 🧪 Tests
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+# Tests unitaires
+pnpm run test
+
+# Tests en mode watch
+pnpm run test:watch
+
+# Couverture de code
+pnpm run test:cov
+
+# Tests end-to-end
+pnpm run test:e2e
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+---
 
-## Resources
+## 📄 License
 
-Check out a few resources that may come in handy when working with NestJS:
+Ce projet est sous licence [MIT](https://opensource.org/licenses/MIT).
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+---
 
-## Support
+## 👨‍💻 Auteur & Contact
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+**Ahmed Mhenni**
+Étudiant en Développement Logiciel — [ISET Sousse](http://www.isetsousse.rnu.tn/)
 
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Projet de Fin d'Études réalisé pour un **groupe hôtelier majeur**.

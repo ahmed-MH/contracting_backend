@@ -1,5 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';
-import { ContractLine } from './contract-line.entity';
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 import { SupplementType, SupplementValueType } from '../../../shared/constants/enums';
 
 @Entity()
@@ -32,8 +31,6 @@ export class Supplement {
     @Column({ default: false })
     isMandatory: boolean;
 
-    @ManyToOne(() => ContractLine, (line) => line.supplements, {
-        onDelete: 'CASCADE',
-    })
-    contractLine: ContractLine;
+    // Inverse side removed — relation is now ManyToMany owned by ContractLine
+    // Access via ContractLine.supplements
 }

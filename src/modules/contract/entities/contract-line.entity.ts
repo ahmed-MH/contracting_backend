@@ -5,6 +5,10 @@ import {
     ManyToOne,
     Unique,
     OneToMany,
+    OneToOne,
+    ManyToMany,
+    JoinTable,
+    JoinColumn,
 } from 'typeorm';
 import { Period } from './period.entity';
 import { ContractRoom } from './contract-room.entity';
@@ -29,18 +33,25 @@ export class ContractLine {
     @ManyToOne(() => ContractRoom, { onDelete: 'NO ACTION' })
     contractRoom: ContractRoom;
 
-    @OneToMany(() => Allotment, (allotment) => allotment.contractLine)
-    allotments: Allotment[];
+    // One price per arrangement per line
+    @OneToMany(() => Price, (price) => price.contractLine, { cascade: true })
+    prices: Price[];
 
-    @OneToMany(() => Supplement, (supplement) => supplement.contractLine)
-    supplements: Supplement[];
+    // Single allotment quota per line
+    @OneToOne(() => Allotment, (allotment) => allotment.contractLine, { cascade: true })
+    @JoinColumn()
+    allotment: Allotment;
 
-    @OneToMany(() => Promotion, (promotion) => promotion.contractLine)
+    // Flexible promo assignment — same promo can apply to multiple lines
+    @ManyToMany(() => Promotion)
+    @JoinTable({ name: 'contract_line_promotions' })
     promotions: Promotion[];
 
-    @OneToMany(() => ChildPolicy, (policy) => policy.contractLine)
-    childPolicies: ChildPolicy[];
+    // Flexible supplement assignment — same supplement can apply to multiple lines
+    @ManyToMany(() => Supplement)
+    @JoinTable({ name: 'contract_line_supplements' })
+    supplements: Supplement[];
 
-    @OneToMany(() => Price, (price) => price.contractLine)
-    prices: Price[];
+    @OneToMany(() => ChildPolicy, (policy) => policy.contractLine, { cascade: true })
+    childPolicies: ChildPolicy[];
 }

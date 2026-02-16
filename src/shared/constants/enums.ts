@@ -12,8 +12,8 @@ export enum ContractStatus {
 }
 
 export enum PaymentType {
-    AVANT_ARRIVE = 'AVANT_ARRIVE',
-    RECEPTION_FACTURE = 'RECEPTION_FACTURE',
+    PREPAYMENT = 'Prepayment',
+    BANK_TRANSFER = 'Bank Transfer',
 }
 
 export enum SupplementType {

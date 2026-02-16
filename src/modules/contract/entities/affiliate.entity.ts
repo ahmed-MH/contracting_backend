@@ -10,10 +10,10 @@ export class Affiliate {
     @Column()
     companyName: string;
 
-    @Column()
+    @Column({ nullable: true })
     representativeName: string;
 
-    @Column()
+    @Column({ nullable: true })
     representativeEmail: string;
 
     @Column({
@@ -22,8 +22,17 @@ export class Affiliate {
     })
     paymentType: PaymentType;
 
-    @Column()
+    @Column({ nullable: true })
     market: string;
+
+    @Column({ nullable: true })
+    address: string;
+
+    @Column({ nullable: true })
+    phone: string;
+
+    @Column({ nullable: true })
+    fax: string;
 
     @OneToMany(() => Contract, (contract) => contract.affiliate)
     contracts: Contract[];

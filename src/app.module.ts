@@ -1,12 +1,17 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { HotelModule } from './modules/hotel/hotel.module';
 import { UsersModule } from './modules/users/users.module';
+import { AffiliateModule } from './modules/affiliate/affiliate.module';
 import { ContractModule } from './modules/contract/contract.module';
 import { PricingModule } from './modules/pricing/pricing.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { MailModule } from './modules/mail/mail.module';
+import { CustomIdSubscriber } from './common/subscribers/custom-id.subscriber';
 
 @Module({
   imports: [
@@ -36,11 +41,23 @@ import { PricingModule } from './modules/pricing/pricing.module';
 
     // Feature modules
     HotelModule,
+    AffiliateModule,
     UsersModule,
     ContractModule,
     PricingModule,
+
+    // Auth & Mail
+    AuthModule,
+    MailModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    // Global JWT guard: all routes require auth unless @Public()
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    CustomIdSubscriber,
+  ],
 })
 export class AppModule { }

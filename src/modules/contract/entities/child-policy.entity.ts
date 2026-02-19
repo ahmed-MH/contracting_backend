@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';
 import { ContractLine } from './contract-line.entity';
-import { DiscountType } from '../../../shared/constants/enums';
+import { DiscountType } from '../../../common/constants/enums';
 
 @Entity()
 export class ChildPolicy {

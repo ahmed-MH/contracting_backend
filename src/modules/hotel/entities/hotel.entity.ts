@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, DeleteDateColumn } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 
 @Entity()
@@ -29,4 +29,7 @@ export class Hotel {
 
     @ManyToMany(() => User, (user) => user.hotels)
     users: User[];
+
+    @DeleteDateColumn()
+    deletedAt: Date;
 }

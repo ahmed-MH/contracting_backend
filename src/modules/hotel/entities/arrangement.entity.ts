@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, DeleteDateColumn } from 'typeorm';
 
 @Entity()
 export class Arrangement {
@@ -10,4 +10,7 @@ export class Arrangement {
 
     @Column()
     name: string;
+
+    @DeleteDateColumn()
+    deletedAt: Date;
 }

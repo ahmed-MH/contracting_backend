@@ -1,6 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
-import { PaymentType } from '../../../shared/constants/enums';
-import { Contract } from './contract.entity';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany, DeleteDateColumn } from 'typeorm';
+import { PaymentType } from '../../../common/constants/enums';
+import { Contract } from '../../contract/entities/contract.entity';
 
 @Entity()
 export class Affiliate {
@@ -9,6 +9,9 @@ export class Affiliate {
 
     @Column()
     companyName: string;
+
+    @Column({ unique: true, nullable: true })
+    displayId: string;
 
     @Column({ nullable: true })
     representativeName: string;
@@ -36,4 +39,7 @@ export class Affiliate {
 
     @OneToMany(() => Contract, (contract) => contract.affiliate)
     contracts: Contract[];
+
+    @DeleteDateColumn()
+    deletedAt: Date;
 }

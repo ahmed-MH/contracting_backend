@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, OneToOne } from 'typeorm';
 import { ApiPartner } from './api-partner.entity';
-import { AuthType } from '../../../shared/constants/enums';
+import { AuthType } from '../../../common/constants/enums';
 
 @Entity()
 export class ApiConfiguration {

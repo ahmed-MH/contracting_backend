@@ -1,18 +1,15 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Not, IsNull } from 'typeorm';
 import { Hotel } from './entities/hotel.entity';
 import { RoomType } from './entities/room-type.entity';
 import { Arrangement } from './entities/arrangement.entity';
-import { Affiliate } from '../contract/entities/affiliate.entity';
 import { CreateHotelDto } from './dto/create-hotel.dto';
 import { UpdateHotelDto } from './dto/update-hotel.dto';
 import { CreateRoomTypeDto } from './dto/create-room-type.dto';
 import { UpdateRoomTypeDto } from './dto/update-room-type.dto';
 import { CreateArrangementDto } from './dto/create-arrangement.dto';
 import { UpdateArrangementDto } from './dto/update-arrangement.dto';
-import { CreateAffiliateDto } from './dto/create-affiliate.dto';
-import { UpdateAffiliateDto } from './dto/update-affiliate.dto';
 
 @Injectable()
 export class HotelService {
@@ -25,9 +22,6 @@ export class HotelService {
 
         @InjectRepository(Arrangement)
         private readonly arrangementRepo: Repository<Arrangement>,
-
-        @InjectRepository(Affiliate)
-        private readonly affiliateRepo: Repository<Affiliate>,
     ) { }
 
     // ─── Hotel ────────────────────────────────────────────────────────
@@ -41,12 +35,33 @@ export class HotelService {
         return this.hotelRepo.find();
     }
 
+    async findArchivedHotels(): Promise<Hotel[]> {
+        return this.hotelRepo.find({
+            withDeleted: true,
+            where: { deletedAt: Not(IsNull()) },
+        });
+    }
+
     async updateHotel(id: number, dto: UpdateHotelDto): Promise<Hotel> {
         const hotel = await this.hotelRepo.preload({ id, ...dto });
         if (!hotel) {
             throw new NotFoundException(`Hotel #${id} not found`);
         }
         return this.hotelRepo.save(hotel);
+    }
+
+    async removeHotel(id: number): Promise<void> {
+        const result = await this.hotelRepo.softDelete(id);
+        if (result.affected === 0) {
+            throw new NotFoundException(`Hotel #${id} not found`);
+        }
+    }
+
+    async restoreHotel(id: number): Promise<void> {
+        const result = await this.hotelRepo.restore(id);
+        if (result.affected === 0) {
+            throw new NotFoundException(`Hotel #${id} not found or not archived`);
+        }
     }
 
     // ─── Room Types ───────────────────────────────────────────────────
@@ -73,13 +88,19 @@ export class HotelService {
         return this.roomTypeRepo.find();
     }
 
+    async findArchivedRoomTypes(): Promise<RoomType[]> {
+        return this.roomTypeRepo.find({
+            withDeleted: true,
+            where: { deletedAt: Not(IsNull()) },
+        });
+    }
+
     async updateRoomType(id: number, dto: UpdateRoomTypeDto): Promise<RoomType> {
         this.validateOccupancyRanges(dto);
         const room = await this.roomTypeRepo.preload({ id, ...dto });
         if (!room) {
             throw new NotFoundException(`RoomType #${id} not found`);
         }
-        // Cross-validate merged values (partial update may only update one side)
         if (room.minOccupancy > room.maxOccupancy) {
             throw new BadRequestException('minOccupancy cannot be greater than maxOccupancy after merge');
         }
@@ -93,9 +114,16 @@ export class HotelService {
     }
 
     async removeRoomType(id: number): Promise<void> {
-        const result = await this.roomTypeRepo.delete(id);
+        const result = await this.roomTypeRepo.softDelete(id);
         if (result.affected === 0) {
             throw new NotFoundException(`RoomType #${id} not found`);
+        }
+    }
+
+    async restoreRoomType(id: number): Promise<void> {
+        const result = await this.roomTypeRepo.restore(id);
+        if (result.affected === 0) {
+            throw new NotFoundException(`RoomType #${id} not found or not archived`);
         }
     }
 
@@ -110,6 +138,13 @@ export class HotelService {
         return this.arrangementRepo.find();
     }
 
+    async findArchivedArrangements(): Promise<Arrangement[]> {
+        return this.arrangementRepo.find({
+            withDeleted: true,
+            where: { deletedAt: Not(IsNull()) },
+        });
+    }
+
     async updateArrangement(id: number, dto: UpdateArrangementDto): Promise<Arrangement> {
         const arrangement = await this.arrangementRepo.preload({ id, ...dto });
         if (!arrangement) {
@@ -119,35 +154,16 @@ export class HotelService {
     }
 
     async removeArrangement(id: number): Promise<void> {
-        const result = await this.arrangementRepo.delete(id);
+        const result = await this.arrangementRepo.softDelete(id);
         if (result.affected === 0) {
             throw new NotFoundException(`Arrangement #${id} not found`);
         }
     }
 
-    // ─── Affiliates ───────────────────────────────────────────────────
-
-    async createAffiliate(dto: CreateAffiliateDto): Promise<Affiliate> {
-        const affiliate = this.affiliateRepo.create(dto);
-        return this.affiliateRepo.save(affiliate);
-    }
-
-    async findAllAffiliates(): Promise<Affiliate[]> {
-        return this.affiliateRepo.find();
-    }
-
-    async updateAffiliate(id: number, dto: UpdateAffiliateDto): Promise<Affiliate> {
-        const affiliate = await this.affiliateRepo.preload({ id, ...dto });
-        if (!affiliate) {
-            throw new NotFoundException(`Affiliate #${id} not found`);
-        }
-        return this.affiliateRepo.save(affiliate);
-    }
-
-    async removeAffiliate(id: number): Promise<void> {
-        const result = await this.affiliateRepo.delete(id);
+    async restoreArrangement(id: number): Promise<void> {
+        const result = await this.arrangementRepo.restore(id);
         if (result.affected === 0) {
-            throw new NotFoundException(`Affiliate #${id} not found`);
+            throw new NotFoundException(`Arrangement #${id} not found or not archived`);
         }
     }
 }

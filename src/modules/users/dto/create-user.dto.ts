@@ -6,7 +6,7 @@ import {
     IsOptional,
     MinLength,
 } from 'class-validator';
-import { UserRole } from '../../../shared/constants/enums';
+import { UserRole } from '../../../common/constants/enums';
 
 export class CreateUserDto {
     @IsEmail()

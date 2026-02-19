@@ -8,12 +8,12 @@ import { Repository } from 'typeorm';
 import { Contract } from './entities/contract.entity';
 import { Period } from './entities/period.entity';
 import { ContractRoom } from './entities/contract-room.entity';
-import { Affiliate } from './entities/affiliate.entity';
+import { Affiliate } from '../affiliate/entities/affiliate.entity';
 import { RoomType } from '../hotel/entities/room-type.entity';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { CreatePeriodDto } from './dto/create-period.dto';
 import { CreateContractRoomDto } from './dto/create-contract-room.dto';
-import { DateUtil } from '../../shared/utils/date.util';
+import { DateUtil } from '../../common/utils/date.util';
 
 @Injectable()
 export class ContractService {

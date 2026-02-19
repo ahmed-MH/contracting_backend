@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, Unique } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, Unique, DeleteDateColumn } from 'typeorm';
 
 @Entity()
 @Unique('UQ_ROOM_CODE', ['code'])
@@ -8,6 +8,9 @@ export class RoomType {
 
     @Column()
     code: string;
+
+    @Column({ unique: true, nullable: true })
+    displayId: string;
 
     @Column()
     name: string;
@@ -32,4 +35,7 @@ export class RoomType {
 
     @Column({ default: false })
     allowCotOverMax: boolean;
+
+    @DeleteDateColumn()
+    deletedAt: Date;
 }

@@ -6,8 +6,8 @@ import {
     OneToMany,
     Index,
 } from 'typeorm';
-import { ContractStatus } from '../../../shared/constants/enums';
-import { Affiliate } from './affiliate.entity';
+import { ContractStatus } from '../../../common/constants/enums';
+import { Affiliate } from '../../affiliate/entities/affiliate.entity';
 import { Period } from './period.entity';
 import { ContractRoom } from './contract-room.entity';
 
@@ -22,6 +22,9 @@ export class Contract {
 
     @Column()
     code: string;
+
+    @Column({ unique: true, nullable: true })
+    displayId: string;
 
     @Column()
     name: string;

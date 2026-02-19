@@ -3,7 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Contract } from './entities/contract.entity';
 import { Period } from './entities/period.entity';
 import { ContractRoom } from './entities/contract-room.entity';
-import { Affiliate } from './entities/affiliate.entity';
+import { Affiliate } from '../affiliate/entities/affiliate.entity';
 import { RoomType } from '../hotel/entities/room-type.entity';
 import { ContractService } from './contract.service';
 import { ContractController } from './contract.controller';

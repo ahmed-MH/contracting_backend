@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsString, IsNotEmpty, IsOptional, IsEmail, IsEnum } from 'class-validator';
-import { PaymentType } from '../../../shared/constants/enums';
+import { PaymentType } from '../../../common/constants/enums';
 
 export class CreateAffiliateDto {
     @IsString()

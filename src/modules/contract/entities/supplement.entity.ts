@@ -1,5 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
-import { SupplementType, SupplementValueType } from '../../../shared/constants/enums';
+import { SupplementType, SupplementValueType } from '../../../common/constants/enums';
 
 @Entity()
 export class Supplement {

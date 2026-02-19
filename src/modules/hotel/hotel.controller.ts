@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Headers, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { HotelService } from './hotel.service';
 import { CreateHotelDto } from './dto/create-hotel.dto';
 import { UpdateHotelDto } from './dto/update-hotel.dto';
@@ -6,16 +6,19 @@ import { CreateRoomTypeDto } from './dto/create-room-type.dto';
 import { UpdateRoomTypeDto } from './dto/update-room-type.dto';
 import { CreateArrangementDto } from './dto/create-arrangement.dto';
 import { UpdateArrangementDto } from './dto/update-arrangement.dto';
-import { CreateAffiliateDto } from './dto/create-affiliate.dto';
-import { UpdateAffiliateDto } from './dto/update-affiliate.dto';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../../common/constants/enums';
 
 @Controller('hotel')
 export class HotelController {
     constructor(private readonly hotelService: HotelService) { }
 
-    // ─── Hotel ────────────────────────────────────────────────────────
+    // ─── Hotel Management (ADMIN only) ───────────────────────────────
 
     @Post()
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN)
     createHotel(@Body() dto: CreateHotelDto) {
         return this.hotelService.createHotel(dto);
     }
@@ -25,7 +28,16 @@ export class HotelController {
         return this.hotelService.findAllHotels();
     }
 
+    @Get('archived')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN)
+    findArchivedHotels() {
+        return this.hotelService.findArchivedHotels();
+    }
+
     @Patch(':id')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN)
     updateHotel(
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateHotelDto,
@@ -33,9 +45,25 @@ export class HotelController {
         return this.hotelService.updateHotel(id, dto);
     }
 
-    // ─── Room Types ───────────────────────────────────────────────────
+    @Delete(':id')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN)
+    removeHotel(@Param('id', ParseIntPipe) id: number) {
+        return this.hotelService.removeHotel(id);
+    }
+
+    @Patch(':id/restore')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN)
+    restoreHotel(@Param('id', ParseIntPipe) id: number) {
+        return this.hotelService.restoreHotel(id);
+    }
+
+    // ─── Room Types (ADMIN + COMMERCIAL can CUD, all can read) ───────
 
     @Post('room-types')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     createRoomType(@Body() dto: CreateRoomTypeDto) {
         return this.hotelService.createRoomType(dto);
     }
@@ -45,7 +73,16 @@ export class HotelController {
         return this.hotelService.findAllRoomTypes();
     }
 
+    @Get('room-types/archived')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN)
+    findArchivedRoomTypes() {
+        return this.hotelService.findArchivedRoomTypes();
+    }
+
     @Patch('room-types/:id')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     updateRoomType(
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateRoomTypeDto,
@@ -54,13 +91,24 @@ export class HotelController {
     }
 
     @Delete('room-types/:id')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     removeRoomType(@Param('id', ParseIntPipe) id: number) {
         return this.hotelService.removeRoomType(id);
     }
 
-    // ─── Arrangements ─────────────────────────────────────────────────
+    @Patch('room-types/:id/restore')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN)
+    restoreRoomType(@Param('id', ParseIntPipe) id: number) {
+        return this.hotelService.restoreRoomType(id);
+    }
+
+    // ─── Arrangements (ADMIN + COMMERCIAL can CUD, all can read) ─────
 
     @Post('arrangements')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     createArrangement(@Body() dto: CreateArrangementDto) {
         return this.hotelService.createArrangement(dto);
     }
@@ -70,7 +118,16 @@ export class HotelController {
         return this.hotelService.findAllArrangements();
     }
 
+    @Get('arrangements/archived')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN)
+    findArchivedArrangements() {
+        return this.hotelService.findArchivedArrangements();
+    }
+
     @Patch('arrangements/:id')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     updateArrangement(
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateArrangementDto,
@@ -79,32 +136,16 @@ export class HotelController {
     }
 
     @Delete('arrangements/:id')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     removeArrangement(@Param('id', ParseIntPipe) id: number) {
         return this.hotelService.removeArrangement(id);
     }
 
-    // ─── Affiliates ───────────────────────────────────────────────────
-
-    @Post('affiliates')
-    createAffiliate(@Body() dto: CreateAffiliateDto) {
-        return this.hotelService.createAffiliate(dto);
-    }
-
-    @Get('affiliates')
-    findAllAffiliates() {
-        return this.hotelService.findAllAffiliates();
-    }
-
-    @Patch('affiliates/:id')
-    updateAffiliate(
-        @Param('id', ParseIntPipe) id: number,
-        @Body() dto: UpdateAffiliateDto,
-    ) {
-        return this.hotelService.updateAffiliate(id, dto);
-    }
-
-    @Delete('affiliates/:id')
-    removeAffiliate(@Param('id', ParseIntPipe) id: number) {
-        return this.hotelService.removeAffiliate(id);
+    @Patch('arrangements/:id/restore')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN)
+    restoreArrangement(@Param('id', ParseIntPipe) id: number) {
+        return this.hotelService.restoreArrangement(id);
     }
 }

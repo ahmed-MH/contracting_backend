@@ -1,5 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany, ManyToMany, JoinTable } from 'typeorm';
-import { UserRole } from '../../../shared/constants/enums';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany, ManyToMany, JoinTable, DeleteDateColumn } from 'typeorm';
+import { Exclude } from 'class-transformer';
+import { UserRole } from '../../../common/constants/enums';
 import { AuditLog } from './audit-log.entity';
 import { Hotel } from '../../hotel/entities/hotel.entity';
 
@@ -11,13 +12,14 @@ export class User {
     @Column({ unique: true })
     email: string;
 
-    @Column()
+    @Column({ nullable: true })
     firstName: string;
 
-    @Column()
+    @Column({ nullable: true })
     lastName: string;
 
-    @Column()
+    @Exclude()
+    @Column({ nullable: true })
     password: string;
 
     @Column({
@@ -26,8 +28,16 @@ export class User {
     })
     role: UserRole;
 
-    @Column({ default: true })
+    @Column({ default: false })
     isActive: boolean;
+
+    @Exclude()
+    @Column({ nullable: true })
+    invitationToken: string;
+
+    @Exclude()
+    @Column({ nullable: true })
+    resetPasswordToken: string;
 
     @OneToMany(() => AuditLog, (log) => log.user)
     logs: AuditLog[];
@@ -35,4 +45,7 @@ export class User {
     @ManyToMany(() => Hotel, (hotel) => hotel.users, { eager: false })
     @JoinTable({ name: 'user_hotels' })
     hotels: Hotel[];
+
+    @DeleteDateColumn()
+    deletedAt?: Date;
 }

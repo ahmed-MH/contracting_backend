@@ -13,7 +13,11 @@ export class DateUtil {
      * @param end2   - End of the second range
      * @returns true if the two date ranges overlap, false otherwise
      */
-    static isOverlap(start1: Date, end1: Date, start2: Date, end2: Date): boolean {
-        return start1 <= end2 && start2 <= end1;
+    static isOverlap(start1: Date | string, end1: Date | string, start2: Date | string, end2: Date | string): boolean {
+        const s1 = new Date(start1).getTime();
+        const e1 = new Date(end1).getTime();
+        const s2 = new Date(start2).getTime();
+        const e2 = new Date(end2).getTime();
+        return s1 <= e2 && s2 <= e1;
     }
 }

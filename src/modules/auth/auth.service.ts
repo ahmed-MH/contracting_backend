@@ -65,7 +65,12 @@ export class AuthService implements OnModuleInit {
             throw new UnauthorizedException('Account is not activated. Check your invitation email.');
         }
 
-        const payload = { sub: user.id, email: user.email, role: user.role };
+        const payload = {
+            sub: user.id,
+            email: user.email,
+            role: user.role,
+            hotelIds: user.hotels?.map(h => h.id) || []
+        };
         return {
             accessToken: this.jwtService.sign(payload),
             user: {
@@ -80,6 +85,13 @@ export class AuthService implements OnModuleInit {
 
     // ─── Invite ──────────────────────────────────────────────────────
     async invite(dto: InviteUserDto) {
+        // ADMIN = global, no hotel required. COMMERCIAL = must have at least one hotel.
+        if (dto.role === UserRole.COMMERCIAL) {
+            if (!dto.hotelIds || dto.hotelIds.length === 0) {
+                throw new BadRequestException('Un COMMERCIAL doit être assigné à au moins un hôtel.');
+            }
+        }
+
         const token = randomUUID();
 
         const user = await this.usersService.createInvitedUser({
@@ -88,8 +100,8 @@ export class AuthService implements OnModuleInit {
             invitationToken: token,
         });
 
-        // Assign hotels if provided
-        if (dto.hotelIds && dto.hotelIds.length > 0) {
+        // Assign hotels only for COMMERCIAL
+        if (dto.role !== UserRole.ADMIN && dto.hotelIds && dto.hotelIds.length > 0) {
             await this.usersService.update(user.id, { hotelIds: dto.hotelIds });
         }
 
@@ -113,7 +125,12 @@ export class AuthService implements OnModuleInit {
 
         await this.usersService.save(user);
 
-        const payload = { sub: user.id, email: user.email, role: user.role };
+        const payload = {
+            sub: user.id,
+            email: user.email,
+            role: user.role,
+            hotelIds: user.hotels?.map(h => h.id) || []
+        };
         return {
             accessToken: this.jwtService.sign(payload),
             user: {

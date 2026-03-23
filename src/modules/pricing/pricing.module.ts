@@ -1,12 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ContractLine } from '../contract/entities/contract-line.entity';
-import { Price } from '../contract/entities/price.entity';
-import { Allotment } from '../contract/entities/allotment.entity';
-import { Promotion } from '../contract/entities/promotion.entity';
-import { Supplement } from '../contract/entities/supplement.entity';
-import { Period } from '../contract/entities/period.entity';
-import { ContractRoom } from '../contract/entities/contract-room.entity';
+import { ContractLine } from '../contract/core/entities/contract-line.entity';
+import { Price } from '../contract/core/entities/price.entity';
+import { Promotion } from '../contract/core/entities/promotion.entity';
+import { Period } from '../contract/core/entities/period.entity';
+import { ContractRoom } from '../contract/core/entities/contract-room.entity';
 import { Arrangement } from '../hotel/entities/arrangement.entity';
 import { PricingService } from './pricing.service';
 import { PricingController } from './pricing.controller';
@@ -16,9 +14,7 @@ import { PricingController } from './pricing.controller';
         TypeOrmModule.forFeature([
             ContractLine,
             Price,
-            Allotment,
             Promotion,
-            Supplement,
             Period,
             ContractRoom,
             Arrangement,

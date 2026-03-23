@@ -18,6 +18,10 @@ function toTitleCase(value: string): string {
 
 export class CreateRoomTypeDto {
     @IsString()
+    @IsOptional()
+    reference?: string;
+
+    @IsString()
     @IsNotEmpty()
     @MaxLength(4, { message: 'Room type code must be 4 characters max' })
     @Transform(({ value }: { value: string }) => value.trim().toUpperCase())

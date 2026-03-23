@@ -5,13 +5,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { ContractLine } from '../contract/entities/contract-line.entity';
-import { Price } from '../contract/entities/price.entity';
-import { Allotment } from '../contract/entities/allotment.entity';
-import { Promotion } from '../contract/entities/promotion.entity';
-import { Supplement } from '../contract/entities/supplement.entity';
-import { Period } from '../contract/entities/period.entity';
-import { ContractRoom } from '../contract/entities/contract-room.entity';
+import { ContractLine } from '../contract/core/entities/contract-line.entity';
+import { Price } from '../contract/core/entities/price.entity';
+import { Promotion } from '../contract/core/entities/promotion.entity';
+import { Period } from '../contract/core/entities/period.entity';
+import { ContractRoom } from '../contract/core/entities/contract-room.entity';
 import { Arrangement } from '../hotel/entities/arrangement.entity';
 import { InitContractLineDto } from './dto/init-contract-line.dto';
 import { SetPriceDto } from './dto/set-price.dto';
@@ -27,14 +25,8 @@ export class PricingService {
         @InjectRepository(Price)
         private readonly priceRepo: Repository<Price>,
 
-        @InjectRepository(Allotment)
-        private readonly allotmentRepo: Repository<Allotment>,
-
         @InjectRepository(Promotion)
         private readonly promotionRepo: Repository<Promotion>,
-
-        @InjectRepository(Supplement)
-        private readonly supplementRepo: Repository<Supplement>,
 
         @InjectRepository(Period)
         private readonly periodRepo: Repository<Period>,
@@ -161,33 +153,19 @@ export class PricingService {
         return this.lineRepo.save(line);
     }
 
-    // ─── Set / Update Allotment (upsert: OneToOne) ────────────────────
+    // ─── Set / Update Allotment (now stored as a column on ContractLine) ─────
 
-    async setAllotment(dto: SetAllotmentDto): Promise<Allotment> {
+    async setAllotment(dto: SetAllotmentDto): Promise<ContractLine> {
         const line = await this.lineRepo.findOne({
             where: { id: dto.contractLineId },
-            relations: ['allotment'],
         });
 
         if (!line) {
             throw new NotFoundException(`ContractLine #${dto.contractLineId} not found`);
         }
 
-        if (line.allotment) {
-            // Update existing allotment
-            line.allotment.quantity = dto.quantity;
-            line.allotment.isStopSale = dto.isStopSale ?? line.allotment.isStopSale;
-            return this.allotmentRepo.save(line.allotment);
-        }
-
-        // Create new allotment
-        const allotment = this.allotmentRepo.create({
-            quantity: dto.quantity,
-            isStopSale: dto.isStopSale ?? false,
-            contractLine: line,
-        });
-
-        return this.allotmentRepo.save(allotment);
+        line.allotment = dto.quantity;
+        return this.lineRepo.save(line);
     }
 
     // ─── Get full pricing matrix for a contract ───────────────────────
@@ -203,9 +181,7 @@ export class PricingService {
                 'contractRoom.roomType',
                 'prices',
                 'prices.arrangement',
-                'allotment',
                 'promotions',
-                'supplements',
                 'childPolicies',
             ],
             order: {

@@ -1,4 +1,4 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -17,6 +17,10 @@ export class UsersService {
 
     async findByEmail(email: string): Promise<User | null> {
         return this.userRepo.findOne({ where: { email }, relations: ['hotels'] });
+    }
+
+    async findById(id: number): Promise<User | null> {
+        return this.userRepo.findOne({ where: { id }, relations: ['hotels'] });
     }
 
     async findByInvitationToken(token: string): Promise<User | null> {
@@ -81,15 +85,33 @@ export class UsersService {
         // 1. Update scalar fields
         if (dto.firstName) user.firstName = dto.firstName;
         if (dto.lastName) user.lastName = dto.lastName;
+
+        // 2. Role change logic
+        const effectiveRole = dto.role ?? user.role;
         if (dto.role) user.role = dto.role;
 
-        // 2. Update hotels if provided
-        if (dto.hotelIds) {
+        // 3. Hotel assignment based on role
+        if (effectiveRole === UserRole.ADMIN) {
+            // ADMIN is global — always clear hotel assignments
+            user.hotels = [];
+        } else if (dto.hotelIds !== undefined) {
+            // COMMERCIAL — assign hotels (validate at least one)
+            if (dto.hotelIds.length === 0) {
+                throw new BadRequestException('Un COMMERCIAL doit être assigné à au moins un hôtel.');
+            }
             const hotels = await this.hotelRepo.findByIds(dto.hotelIds);
             user.hotels = hotels;
         }
 
         return this.userRepo.save(user);
+    }
+
+    async findAssignedHotels(userId: number): Promise<Hotel[]> {
+        const user = await this.userRepo.findOne({
+            where: { id: userId },
+            relations: ['hotels'],
+        });
+        return user?.hotels ?? [];
     }
 
     async remove(id: number): Promise<void> {

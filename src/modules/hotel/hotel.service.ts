@@ -1,27 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, IsNull } from 'typeorm';
 import { Hotel } from './entities/hotel.entity';
-import { RoomType } from './entities/room-type.entity';
-import { Arrangement } from './entities/arrangement.entity';
 import { CreateHotelDto } from './dto/create-hotel.dto';
 import { UpdateHotelDto } from './dto/update-hotel.dto';
-import { CreateRoomTypeDto } from './dto/create-room-type.dto';
-import { UpdateRoomTypeDto } from './dto/update-room-type.dto';
-import { CreateArrangementDto } from './dto/create-arrangement.dto';
-import { UpdateArrangementDto } from './dto/update-arrangement.dto';
+import { UserRole } from '../../common/constants/enums';
 
 @Injectable()
 export class HotelService {
     constructor(
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,
-
-        @InjectRepository(RoomType)
-        private readonly roomTypeRepo: Repository<RoomType>,
-
-        @InjectRepository(Arrangement)
-        private readonly arrangementRepo: Repository<Arrangement>,
     ) { }
 
     // ─── Hotel ────────────────────────────────────────────────────────
@@ -31,7 +20,15 @@ export class HotelService {
         return this.hotelRepo.save(hotel);
     }
 
-    async findAllHotels(): Promise<Hotel[]> {
+    async findAllHotels(user?: { id: number; role: UserRole }): Promise<Hotel[]> {
+        if (user && user.role === UserRole.COMMERCIAL) {
+            return this.hotelRepo.find({
+                where: {
+                    users: { id: user.id }
+                },
+                relations: ['users']
+            });
+        }
         return this.hotelRepo.find();
     }
 
@@ -64,106 +61,15 @@ export class HotelService {
         }
     }
 
-    // ─── Room Types ───────────────────────────────────────────────────
+    // ─── Room Types (Extracted to RoomTypeService) ────────────────
 
-    private validateOccupancyRanges(dto: Partial<CreateRoomTypeDto>): void {
-        if (dto.minOccupancy !== undefined && dto.maxOccupancy !== undefined && dto.minOccupancy > dto.maxOccupancy) {
-            throw new BadRequestException('minOccupancy cannot be greater than maxOccupancy');
-        }
-        if (dto.minAdults !== undefined && dto.maxAdults !== undefined && dto.minAdults > dto.maxAdults) {
-            throw new BadRequestException('minAdults cannot be greater than maxAdults');
-        }
-        if (dto.minChildren !== undefined && dto.maxChildren !== undefined && dto.minChildren > dto.maxChildren) {
-            throw new BadRequestException('minChildren cannot be greater than maxChildren');
-        }
-    }
+    // ─── Arrangements (Extracted to ArrangementService) ────────────────
 
-    async createRoomType(dto: CreateRoomTypeDto): Promise<RoomType> {
-        this.validateOccupancyRanges(dto);
-        const roomType = this.roomTypeRepo.create(dto);
-        return this.roomTypeRepo.save(roomType);
-    }
+    // ─── Template Supplements (Extracted) ────────────────
 
-    async findAllRoomTypes(): Promise<RoomType[]> {
-        return this.roomTypeRepo.find();
-    }
+    // ─── Template Reductions (Extracted) ────────────────
 
-    async findArchivedRoomTypes(): Promise<RoomType[]> {
-        return this.roomTypeRepo.find({
-            withDeleted: true,
-            where: { deletedAt: Not(IsNull()) },
-        });
-    }
+    // ─── Template Monoparental Rules (Extracted) ────────────────
 
-    async updateRoomType(id: number, dto: UpdateRoomTypeDto): Promise<RoomType> {
-        this.validateOccupancyRanges(dto);
-        const room = await this.roomTypeRepo.preload({ id, ...dto });
-        if (!room) {
-            throw new NotFoundException(`RoomType #${id} not found`);
-        }
-        if (room.minOccupancy > room.maxOccupancy) {
-            throw new BadRequestException('minOccupancy cannot be greater than maxOccupancy after merge');
-        }
-        if (room.minAdults > room.maxAdults) {
-            throw new BadRequestException('minAdults cannot be greater than maxAdults after merge');
-        }
-        if (room.minChildren > room.maxChildren) {
-            throw new BadRequestException('minChildren cannot be greater than maxChildren after merge');
-        }
-        return this.roomTypeRepo.save(room);
-    }
-
-    async removeRoomType(id: number): Promise<void> {
-        const result = await this.roomTypeRepo.softDelete(id);
-        if (result.affected === 0) {
-            throw new NotFoundException(`RoomType #${id} not found`);
-        }
-    }
-
-    async restoreRoomType(id: number): Promise<void> {
-        const result = await this.roomTypeRepo.restore(id);
-        if (result.affected === 0) {
-            throw new NotFoundException(`RoomType #${id} not found or not archived`);
-        }
-    }
-
-    // ─── Arrangements ─────────────────────────────────────────────────
-
-    async createArrangement(dto: CreateArrangementDto): Promise<Arrangement> {
-        const arrangement = this.arrangementRepo.create(dto);
-        return this.arrangementRepo.save(arrangement);
-    }
-
-    async findAllArrangements(): Promise<Arrangement[]> {
-        return this.arrangementRepo.find();
-    }
-
-    async findArchivedArrangements(): Promise<Arrangement[]> {
-        return this.arrangementRepo.find({
-            withDeleted: true,
-            where: { deletedAt: Not(IsNull()) },
-        });
-    }
-
-    async updateArrangement(id: number, dto: UpdateArrangementDto): Promise<Arrangement> {
-        const arrangement = await this.arrangementRepo.preload({ id, ...dto });
-        if (!arrangement) {
-            throw new NotFoundException(`Arrangement #${id} not found`);
-        }
-        return this.arrangementRepo.save(arrangement);
-    }
-
-    async removeArrangement(id: number): Promise<void> {
-        const result = await this.arrangementRepo.softDelete(id);
-        if (result.affected === 0) {
-            throw new NotFoundException(`Arrangement #${id} not found`);
-        }
-    }
-
-    async restoreArrangement(id: number): Promise<void> {
-        const result = await this.arrangementRepo.restore(id);
-        if (result.affected === 0) {
-            throw new NotFoundException(`Arrangement #${id} not found or not archived`);
-        }
-    }
+    // ─── Template Early Bookings (Extracted) ────────────────
 }

@@ -5,7 +5,11 @@ import { SetPriceDto } from './dto/set-price.dto';
 import { ManageLinePromosDto } from './dto/manage-line-promos.dto';
 import { SetAllotmentDto } from './dto/set-allotment.dto';
 
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../../common/constants/enums';
+
 @Controller('pricing')
+@Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
 export class PricingController {
     constructor(private readonly pricingService: PricingService) { }
 

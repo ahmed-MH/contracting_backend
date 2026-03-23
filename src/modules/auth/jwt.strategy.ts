@@ -7,6 +7,7 @@ export interface JwtPayload {
     sub: number;
     email: string;
     role: string;
+    hotelIds: number[];
 }
 
 @Injectable()
@@ -21,6 +22,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     validate(payload: JwtPayload) {
         // Returned object is injected into request.user
-        return { id: payload.sub, email: payload.email, role: payload.role };
+        return {
+            id: payload.sub,
+            email: payload.email,
+            role: payload.role,
+            hotelIds: payload.hotelIds || []
+        };
     }
 }

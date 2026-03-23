@@ -5,10 +5,16 @@ import {
     DataSource,
 } from 'typeorm';
 import { Injectable } from '@nestjs/common';
-import { Affiliate } from '../../modules/affiliate/entities/affiliate.entity';
-import { RoomType } from '../../modules/hotel/entities/room-type.entity';
-import { Contract } from '../../modules/contract/entities/contract.entity';
 
+/**
+ * Centralized subscriber that auto-generates a unique `reference`
+ * for every entity that declares a `reference` column, when that
+ * column is null/empty after insertion.
+ *
+ * Uses afterInsert so we have access to the auto-incremented ID.
+ * Format : PREFIX + ID padded to 5 digits
+ * Example: CSUP-00042
+ */
 @Injectable()
 @EventSubscriber()
 export class CustomIdSubscriber implements EntitySubscriberInterface {
@@ -16,87 +22,57 @@ export class CustomIdSubscriber implements EntitySubscriberInterface {
         dataSource.subscribers.push(this);
     }
 
+    /** Entity name → prefix mapping */
+    private static readonly PREFIXES: Record<string, string> = {
+        Hotel: 'HTL-',
+        Affiliate: 'AFF-',
+        Arrangement: 'ARR-',
+        Contract: 'CTR-',
+        RoomType: 'RMT-',
+        ContractRoom: 'CRMT-',
+        ContractSupplement: 'CSUP-',
+        ContractReduction: 'CRED-',
+        ContractMonoparentalRule: 'CMON-',
+        ContractEarlyBooking: 'CEBO-',
+        TemplateSupplement: 'SUP-',
+        TemplateReduction: 'RED-',
+        TemplateMonoparentalRule: 'MON-',
+        TemplateEarlyBooking: 'EBO-',
+        TemplateSpo: 'SPO-',
+        ContractSpo: 'CSPO-',
+        TemplateCancellationRule: 'CAN-',
+    };
+
     /**
-     * Called before entity insertion.
+     * Called AFTER entity insertion.
+     * At this point event.entity.id is populated by MS SQL.
+     * If the entity has a `reference` column and it's empty,
+     * we build PREFIX + zero-padded ID and update the row.
      */
-    async beforeInsert(event: InsertEvent<any>) {
-        if (event.entity instanceof Affiliate) {
-            await this.generateAffiliateId(event as InsertEvent<Affiliate>);
-        } else if (event.entity instanceof RoomType) {
-            await this.generateRoomTypeId(event as InsertEvent<RoomType>);
-        } else if (event.entity instanceof Contract) {
-            await this.generateContractId(event as InsertEvent<Contract>);
-        }
-    }
+    async afterInsert(event: InsertEvent<any>): Promise<void> {
+        const entity = event.entity as Record<string, unknown> | undefined;
+        if (!entity) return;
 
-    private async generateAffiliateId(event: InsertEvent<Affiliate>) {
-        if (event.entity.displayId) return; // Allow manual override
+        // Check if this entity schema actually declares a `reference` column
+        const hasReferenceColumn = event.metadata.columns.some(
+            (col) => col.propertyName === 'reference',
+        );
 
-        const manager = event.manager;
-        const lastEntity = await manager.getRepository(Affiliate).findOne({
-            where: {},
-            order: { id: 'DESC' },
-        });
+        if (!hasReferenceColumn || entity['reference']) return;
 
-        const lastId = lastEntity?.displayId
-            ? parseInt(lastEntity.displayId.replace('AFF-', ''), 10)
-            : 0;
+        const prefix =
+            CustomIdSubscriber.PREFIXES[event.metadata.targetName];
+        if (!prefix) return;
 
-        const nextId = lastId + 1;
-        event.entity.displayId = `AFF-${nextId.toString().padStart(3, '0')}`;
-    }
+        const id = entity['id'] as number;
+        const reference = `${prefix}${String(id).padStart(5, '0')}`;
 
-    private async generateRoomTypeId(event: InsertEvent<RoomType>) {
-        if (event.entity.displayId) return;
+        // Update the row with the generated reference
+        await event.manager
+            .getRepository(event.metadata.target)
+            .update(id, { reference });
 
-        const manager = event.manager;
-        const lastEntity = await manager.getRepository(RoomType).findOne({
-            where: {},
-            order: { id: 'DESC' },
-        });
-
-        // Handle cases where older records might not have displayId
-        // Ideally we should count or rely on a sequence, but user requirement is "Last Entity + 1"
-        // If last entity has no displayId, we start from 0 assuming migration script handles others or we just start fresh
-        let lastId = 0;
-        if (lastEntity?.displayId) {
-            const parts = lastEntity.displayId.split('RT-');
-            if (parts.length > 1 && !isNaN(parseInt(parts[1]))) {
-                lastId = parseInt(parts[1], 10);
-            }
-        }
-
-        const nextId = lastId + 1;
-        event.entity.displayId = `RT-${nextId.toString().padStart(3, '0')}`;
-    }
-
-    private async generateContractId(event: InsertEvent<Contract>) {
-        if (event.entity.displayId) return;
-
-        const startDate = new Date(event.entity.startDate);
-        const year = startDate.getFullYear();
-        const prefix = `CTR-${year}-`;
-
-        const manager = event.manager;
-
-        // Find the last contract for this year
-        // We need to use QueryBuilder because we want to filter by displayId pattern
-        const lastEntity = await manager
-            .getRepository(Contract)
-            .createQueryBuilder('contract')
-            .where('contract.displayId LIKE :pattern', { pattern: `${prefix}%` })
-            .orderBy('contract.id', 'DESC')
-            .getOne();
-
-        let lastSequence = 0;
-        if (lastEntity?.displayId) {
-            const parts = lastEntity.displayId.replace(prefix, '');
-            if (!isNaN(parseInt(parts))) {
-                lastSequence = parseInt(parts, 10);
-            }
-        }
-
-        const nextSequence = lastSequence + 1;
-        event.entity.displayId = `${prefix}${nextSequence.toString().padStart(3, '0')}`;
+        // Keep the in-memory entity in sync
+        entity['reference'] = reference;
     }
 }

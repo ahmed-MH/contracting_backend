@@ -2,7 +2,9 @@ import { Transform } from 'class-transformer';
 import {
     IsString,
     IsNotEmpty,
+    IsOptional,
     MaxLength,
+    IsInt,
 } from 'class-validator';
 
 function toTitleCase(value: string): string {
@@ -22,4 +24,16 @@ export class CreateArrangementDto {
     @IsNotEmpty()
     @Transform(({ value }: { value: string }) => toTitleCase(value.trim()))
     name: string;
+
+    @IsString()
+    @IsOptional()
+    reference?: string;
+
+    @IsString()
+    @IsOptional()
+    description?: string;
+
+    @IsInt()
+    @IsOptional()
+    level?: number;
 }

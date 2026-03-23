@@ -1,0 +1,37 @@
+# Dépendances (seront installées dans le container)
+node_modules/
+
+# Build output (sera régénéré par le Dockerfile)
+dist/
+
+# Secrets — NE JAMAIS inclure dans l'image
+.env
+.env.*
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Logs & temporaires
+*.log
+coverage/
+
+# Docker lui-même
+Dockerfile
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+
+# Tests (pas nécessaires en prod)
+test/
+**/*.spec.ts
+
+# Scripts de dev uniquement
+src/scripts/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -7,7 +7,7 @@
 # STAGE 1 : builder
 # Installe les dépendances et compile le TS
 # ──────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 # Installer pnpm globalement
 RUN npm install -g pnpm
@@ -31,7 +31,7 @@ RUN pnpm run build
 # STAGE 2 : runner (image finale, légère)
 # Ne contient que le code compilé + dépendances de prod
 # ──────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 
 # Installer pnpm et dumb-init (gestion propre des signaux UNIX en prod)
 RUN npm install -g pnpm && apk add --no-cache dumb-init

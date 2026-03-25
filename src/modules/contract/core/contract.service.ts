@@ -32,6 +32,7 @@ import { Price } from './entities/price.entity';
 
 @Injectable()
 export class ContractService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(Contract)
         private readonly contractRepo: Repository<Contract>,

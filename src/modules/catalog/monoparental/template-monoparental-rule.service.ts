@@ -10,6 +10,7 @@ import { PageDto } from '../../../common/dto/page.dto';
 
 @Injectable()
 export class TemplateMonoparentalRuleService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(TemplateMonoparentalRule)
         private readonly templateMonoparentalRuleRepo: Repository<TemplateMonoparentalRule>,

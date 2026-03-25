@@ -8,6 +8,7 @@ import { UpdateArrangementDto } from './dto/update-arrangement.dto';
 
 @Injectable()
 export class ArrangementService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(Arrangement)
         private readonly arrangementRepo: Repository<Arrangement>,

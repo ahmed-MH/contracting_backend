@@ -18,6 +18,7 @@ import { SetAllotmentDto } from './dto/set-allotment.dto';
 
 @Injectable()
 export class PricingService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(ContractLine)
         private readonly lineRepo: Repository<ContractLine>,

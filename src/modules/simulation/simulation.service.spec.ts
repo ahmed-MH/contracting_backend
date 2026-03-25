@@ -8,6 +8,7 @@ import { ContractMonoparentalRule } from '../contract/monoparental/entities/cont
 import { ContractEarlyBooking } from '../contract/early-booking/entities/contract-early-booking.entity';
 import { ContractSpo } from '../contract/spo/entities/contract-spo.entity';
 import { ContractSupplement } from '../contract/supplement/entities/contract-supplement.entity';
+import { OccupantType } from './dto/simulation-request.dto';
 import { 
     ContractStatus, 
     ReductionCalculationType, 
@@ -65,6 +66,18 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
         ...overrides
     });
 
+    const createRoomingList = (roomId: number, adults: number, childrenAges: number[] = []) => {
+        const occupants: any[] = [];
+        let paxOrder = 1;
+        for (let i = 0; i < adults; i++) {
+            occupants.push({ paxOrder: paxOrder++, type: OccupantType.ADULT, age: 30 });
+        }
+        childrenAges.forEach(age => {
+            occupants.push({ paxOrder: paxOrder++, type: OccupantType.CHILD, age });
+        });
+        return [{ roomId, occupants }];
+    };
+
     beforeEach(async () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -82,7 +95,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
         service = module.get<SimulationService>(SimulationService);
         
         // Reset all mocks
-        Object.values(repos).forEach(repo => {
+        Object.values(repos).forEach((repo: any) => {
             if (repo.findOne) repo.findOne.mockReset();
             if (repo.find) repo.find.mockReset();
         });
@@ -97,15 +110,34 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
         repos.supplement.find.mockResolvedValue([]);
     });
 
+    describe('Exceptions & Validations', () => {
+        it('should throw NotFoundException if contract not found', async () => {
+            repos.contract.findOne.mockResolvedValue(null);
+            await expect(service.calculate({ contractId: 999 } as any)).rejects.toThrow('Contract #999 not found');
+        });
+
+        it('should throw BadRequestException if contract is not active', async () => {
+            repos.contract.findOne.mockResolvedValue({ ...mockContract, status: ContractStatus.DRAFT });
+            await expect(service.calculate({ contractId: 1 } as any)).rejects.toThrow('is not ACTIVE');
+        });
+
+        it('should throw BadRequestException if checkOut is before checkIn', async () => {
+            await expect(service.calculate({ 
+                contractId: 1, 
+                checkIn: '2025-01-10', 
+                checkOut: '2025-01-05' 
+            } as any)).rejects.toThrow('Check-out date must be after check-in date');
+        });
+    });
+
     it('Test 1 (Le Basique) : 2 Adultes, 1 nuit standard (Attendu : 200 TND)', async () => {
         const res = await service.calculate({
             contractId: 1,
-            roomId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
             checkOut: '2025-06-02',
-            occupants: { adults: 2, childrenAges: [] }
-        });
+            roomingList: createRoomingList(1, 2)
+        } as any);
 
         console.log(`[BASIQUE] Total pour 2 adultes: ${res.totalGross} ${res.currency}`);
         expect(res.totalGross).toBe(200);
@@ -125,12 +157,11 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
 
         const res = await service.calculate({
             contractId: 1,
-            roomId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
             checkOut: '2025-06-02',
-            occupants: { adults: 2, childrenAges: [8] }
-        });
+            roomingList: createRoomingList(1, 2, [8])
+        } as any);
 
         console.log(`[FAMILLE] Total 2 Ad + 1 Chd (8 ans): ${res.totalGross} ${res.currency}`);
         expect(res.totalGross).toBe(250);
@@ -173,12 +204,11 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
 
         const res = await service.calculate({
             contractId: 1,
-            roomId: 1,
             boardTypeId: 1,
             checkIn: '2025-12-31',
             checkOut: '2026-01-01',
-            occupants: { adults: 2, childrenAges: [8] }
-        });
+            roomingList: createRoomingList(1, 2, [8])
+        } as any);
 
         console.log(`[GALA] Total 31 Déc (2 Ad + 1 Chd): ${res.totalGross} ${res.currency}`);
         expect(res.totalGross).toBe(550);
@@ -209,12 +239,11 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
 
         const res = await service.calculate({
             contractId: 1,
-            roomId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
             checkOut: '2025-06-02',
-            occupants: { adults: 1, childrenAges: [5] }
-        });
+            roomingList: createRoomingList(1, 1, [5])
+        } as any);
 
         console.log(`[MONO] Total 1 Ad + 1 Chd: ${res.totalGross} ${res.currency}`);
         expect(res.totalGross).toBe(150);
@@ -233,27 +262,24 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
 
         const res = await service.calculate({
             contractId: 1,
-            roomId: 1,
             boardTypeId: 1,
-            checkIn: '2025-06-30',
-            checkOut: '2025-07-01',
-            bookingDate: '2025-05-01', 
-            occupants: { adults: 2, childrenAges: [] }
-        });
+            checkIn: '2025-06-01',
+            checkOut: '2025-06-02',
+            bookingDate: '2025-01-01', // Lead time > 30 jours
+            roomingList: createRoomingList(1, 2)
+        } as any);
 
         console.log(`[EARLY BOOKING] Total avec -15%: ${res.totalGross} ${res.currency}`);
         expect(res.totalGross).toBe(170);
     });
 
     it('Test 6 (Le Crash Test Ultime / SPO + Repas) : 2 Adultes, 7 nuits, Stay 7 Pay 6 + Demi-Pension (Attendu : 1620 TND)', async () => {
-        const hbSupplement = createRule({
-            name: 'Demi-Pension',
+        const mealSupp = createRule({
+            name: 'Half Board Supplement',
             systemCode: SupplementSystemCode.MEAL_PLAN,
             isMandatory: true,
             value: 30,
             applicationType: PricingModifierApplicationType.PER_NIGHT_PER_PERSON,
-            minAge: 12,
-            maxAge: 99,
         });
 
         const spoRule = createRule({
@@ -261,21 +287,185 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
             benefitType: SpoBenefitType.FREE_NIGHTS,
             stayNights: 7,
             payNights: 6,
+            benefitValue: 1,
+            applicationType: PricingModifierApplicationType.PER_NIGHT_PER_ROOM, 
         });
 
-        repos.supplement.find.mockResolvedValue([hbSupplement]);
+        repos.supplement.find.mockResolvedValue([mealSupp]);
         repos.spo.find.mockResolvedValue([spoRule]);
+
+        repos.line.find.mockResolvedValue([{
+            id: 1,
+            isContracted: true,
+            period: { startDate: '2025-06-01', endDate: '2025-06-30' },
+            contractRoom: mockRoom,
+            prices: [{ amount: 100, arrangement: mockArrangementRO }],
+        }]);
 
         const res = await service.calculate({
             contractId: 1,
-            roomId: 1,
-            boardTypeId: 1,
+            boardTypeId: 1, 
             checkIn: '2025-06-01',
-            checkOut: '2025-06-08',
-            occupants: { adults: 2, childrenAges: [] }
-        });
+            checkOut: '2025-06-08', 
+            roomingList: createRoomingList(1, 2)
+        } as any);
 
         console.log(`[SPO + MEALS] Total 7 nuits (S7P6) + HB: ${res.totalGross} ${res.currency}`);
         expect(res.totalGross).toBe(1620);
+    });
+
+    it('Test 7 (Le Chevauchement de Saisons) : 2 Adultes, 2 nuits Basse Saison + 2 nuits Haute Saison (Attendu : 1000 TND)', async () => {
+        repos.line.find.mockResolvedValue([
+            {
+                id: 1,
+                isContracted: true,
+                period: { startDate: '2025-06-01', endDate: '2025-06-02' }, 
+                contractRoom: mockRoom,
+                prices: [{ amount: 100, arrangement: mockArrangementRO }],
+            },
+            {
+                id: 2,
+                isContracted: true,
+                period: { startDate: '2025-06-03', endDate: '2025-06-04' }, 
+                contractRoom: mockRoom,
+                prices: [{ amount: 150, arrangement: mockArrangementRO }],
+            }
+        ]);
+
+        const res = await service.calculate({
+            contractId: 1,
+            boardTypeId: 1,
+            checkIn: '2025-06-01',
+            checkOut: '2025-06-05', 
+            roomingList: createRoomingList(1, 2)
+        } as any);
+
+        console.log(`[SAISONS] Total 4 nuits à cheval : ${res.totalGross} ${res.currency}`);
+        expect(res.totalGross).toBe(1000);
+    });
+
+    it('Test 8 (L\'Arbitrage SPO vs SPO) : 14 nuits (S7P6 vs S14P12) (Attendu : 2400 TND)', async () => {
+        const spo1 = createRule({
+            name: 'Stay 7 Pay 6',
+            benefitType: SpoBenefitType.FREE_NIGHTS,
+            stayNights: 7,
+            payNights: 6,
+            benefitValue: 1,
+        });
+
+        const spo2 = createRule({
+            name: 'Stay 14 Pay 12',
+            benefitType: SpoBenefitType.FREE_NIGHTS,
+            stayNights: 14,
+            payNights: 12,
+            benefitValue: 2,
+        });
+
+        repos.spo.find.mockResolvedValue([spo1, spo2]);
+        repos.line.find.mockResolvedValue([{
+            id: 1,
+            isContracted: true,
+            period: { startDate: '2025-06-01', endDate: '2025-06-30' },
+            contractRoom: mockRoom,
+            prices: [{ amount: 100, arrangement: mockArrangementRO }],
+        }]);
+
+        const res = await service.calculate({
+            contractId: 1,
+            boardTypeId: 1,
+            checkIn: '2025-06-01',
+            checkOut: '2025-06-15',
+            roomingList: createRoomingList(1, 2)
+        } as any);
+
+        console.log(`[SPO ARBITRAGE] Total 14 nuits (12 payantes) : ${res.totalGross} ${res.currency}`);
+        expect(res.totalGross).toBe(2400);
+    });
+
+    it('Test 9 (Le Max Pax / 3ème Lit Adulte) : 3 Adultes dans une chambre Triple (Attendu : 275 TND)', async () => {
+        const thirdAdultRule = createRule({
+            systemCode: ReductionSystemCode.EXTRA_ADULT,
+            paxOrder: 3,
+            calculationType: ReductionCalculationType.PERCENTAGE,
+            value: 25,
+        });
+
+        repos.reduction.find.mockResolvedValue([thirdAdultRule]);
+
+        const res = await service.calculate({
+            contractId: 1,
+            boardTypeId: 1,
+            checkIn: '2025-06-01',
+            checkOut: '2025-06-02',
+            roomingList: createRoomingList(1, 3)
+        } as any);
+
+        console.log(`[PAX 3] Total 3 Adultes (3ème lit à -25%) : ${res.totalGross} ${res.currency}`);
+        expect(res.totalGross).toBe(275);
+    });
+
+    it('Test 10 (Le Piège du Repas sur Nuit Gratuite) : 7 Nuits (S7P6) + Dîner de Gala Actif (Attendu : 1440 TND)', async () => {
+        const galaAdult = createRule({
+            name: 'Gala',
+            systemCode: SupplementSystemCode.GALA_DINNER,
+            isMandatory: true,
+            specificDate: '2025-06-07', 
+            value: 120,
+            applicationType: PricingModifierApplicationType.PER_NIGHT_PER_PERSON,
+        });
+
+        const spoRule = createRule({
+            name: 'Stay 7 Pay 6',
+            benefitType: SpoBenefitType.FREE_NIGHTS,
+            stayNights: 7,
+            payNights: 6,
+            benefitValue: 1,
+        });
+
+        repos.supplement.find.mockResolvedValue([galaAdult]);
+        repos.spo.find.mockResolvedValue([spoRule]);
+
+        repos.line.find.mockResolvedValue([{
+            id: 1,
+            isContracted: true,
+            period: { startDate: '2025-06-01', endDate: '2025-06-30' },
+            contractRoom: mockRoom,
+            prices: [{ amount: 100, arrangement: mockArrangementRO }],
+        }]);
+
+        const res = await service.calculate({
+            contractId: 1,
+            boardTypeId: 1,
+            checkIn: '2025-06-01',
+            checkOut: '2025-06-08',
+            roomingList: createRoomingList(1, 2)
+        } as any);
+
+        console.log(`[FREE NIGHT + SUPP] Chambre 1200 + Repas Gala 240 : ${res.totalGross} ${res.currency}`);
+        expect(res.totalGross).toBe(1440);
+    });
+
+    it('Test 11 (La Limite d\'Âge stricte) : 2 Adultes + 1 Enfant (13 ans), maxAge enfant = 12 (Attendu : 300 TND)', async () => {
+        const reductionEnfant = createRule({
+            systemCode: ReductionSystemCode.CHILD,
+            paxOrder: 1,
+            minAge: 2,
+            maxAge: 12, 
+            calculationType: ReductionCalculationType.PERCENTAGE,
+            value: 50,
+        });
+
+        repos.reduction.find.mockResolvedValue([reductionEnfant]);
+
+        const res = await service.calculate({
+            contractId: 1,
+            boardTypeId: 1,
+            checkIn: '2025-06-01',
+            checkOut: '2025-06-02',
+            roomingList: createRoomingList(1, 2, [13])
+        } as any);
+
+        console.log(`[LIMITE ÂGE] Total 2 Ad + 1 Adulte au prix fort (Enfant > 12 ans) : ${res.totalGross} ${res.currency}`);
+        expect(res.totalGross).toBe(300);
     });
 });

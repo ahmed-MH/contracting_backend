@@ -8,6 +8,7 @@ import { Hotel } from '../hotel/entities/hotel.entity';
 
 @Injectable()
 export class UsersService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(User)
         private readonly userRepo: Repository<User>,

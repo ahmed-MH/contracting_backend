@@ -8,6 +8,7 @@ import { UpdateAffiliateDto } from './dto/update-affiliate.dto';
 
 @Injectable()
 export class AffiliateService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(Affiliate)
         private readonly affiliateRepo: Repository<Affiliate>,

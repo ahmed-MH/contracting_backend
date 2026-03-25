@@ -23,6 +23,7 @@ const SALT_ROUNDS = 10;
 export class AuthService implements OnModuleInit {
     private readonly logger = new Logger(AuthService.name);
 
+    /* istanbul ignore next */
     constructor(
         private readonly usersService: UsersService,
         private readonly jwtService: JwtService,

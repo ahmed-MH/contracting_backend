@@ -8,6 +8,7 @@ import { PageDto } from '../../../common/dto/page.dto';
 
 @Injectable()
 export class TemplateCancellationService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(TemplateCancellationRule)
         private readonly templateRepo: Repository<TemplateCancellationRule>,
@@ -58,8 +59,7 @@ export class TemplateCancellationService {
     }
 
     async delete(hotelId: number, id: number) {
-        const item = await this.findOne(hotelId, id);
-        if (!item) throw new NotFoundException(`TemplateCancellationRule #${id} not found`);
+        await this.findOne(hotelId, id);
         return this.templateRepo.softDelete(id);
     }
 

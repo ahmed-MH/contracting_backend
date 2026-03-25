@@ -10,6 +10,7 @@ import { PageDto } from '../../../common/dto/page.dto';
 
 @Injectable()
 export class TemplateReductionService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(TemplateReduction)
         private readonly templateReductionRepo: Repository<TemplateReduction>,

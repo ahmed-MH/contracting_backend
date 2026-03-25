@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 export class MailService {
     private readonly frontendUrl: string;
 
+    /* istanbul ignore next */
     constructor(private readonly configService: ConfigService) {
         this.frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
     }

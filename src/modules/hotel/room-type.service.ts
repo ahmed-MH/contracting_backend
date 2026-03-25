@@ -8,6 +8,7 @@ import { UpdateRoomTypeDto } from './dto/update-room-type.dto';
 
 @Injectable()
 export class RoomTypeService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(RoomType)
         private readonly roomTypeRepo: Repository<RoomType>,

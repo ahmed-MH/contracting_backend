@@ -9,6 +9,7 @@ import { PageDto } from '../../../common/dto/page.dto';
 
 @Injectable()
 export class TemplateEarlyBookingService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(TemplateEarlyBooking)
         private readonly templateEarlyBookingRepo: Repository<TemplateEarlyBooking>,

@@ -1,24 +1,43 @@
-import { IsNumber, IsString, IsNotEmpty, IsDateString, IsOptional, ValidateNested, Min, IsArray } from 'class-validator';
+import { IsNumber, IsNotEmpty, IsDateString, IsOptional, ValidateNested, IsArray, IsEnum, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
-class OccupantsDto {
+export enum OccupantType {
+    ADULT = 'ADULT',
+    CHILD = 'CHILD',
+    INFANT = 'INFANT'
+}
+
+export class OccupantDto {
     @IsNumber()
+    @IsNotEmpty()
     @Min(1)
-    adults: number;
+    paxOrder: number;
+
+    @IsEnum(OccupantType)
+    @IsNotEmpty()
+    type: OccupantType;
+
+    @IsNumber()
+    @IsNotEmpty()
+    age: number;
+}
+
+export class RoomingItemDto {
+    @IsNumber()
+    @IsNotEmpty()
+    roomId: number;
 
     @IsArray()
-    @IsNumber({}, { each: true })
-    childrenAges: number[];
+    @ValidateNested({ each: true })
+    @Type(() => OccupantDto)
+    @IsNotEmpty()
+    occupants: OccupantDto[];
 }
 
 export class SimulationRequestDto {
     @IsNumber()
     @IsNotEmpty()
     contractId: number;
-
-    @IsNumber()
-    @IsNotEmpty()
-    roomId: number;
 
     @IsNumber()
     @IsNotEmpty()
@@ -36,8 +55,9 @@ export class SimulationRequestDto {
     @IsOptional()
     bookingDate?: string;
 
-    @ValidateNested()
-    @Type(() => OccupantsDto)
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => RoomingItemDto)
     @IsNotEmpty()
-    occupants: OccupantsDto;
+    roomingList: RoomingItemDto[];
 }

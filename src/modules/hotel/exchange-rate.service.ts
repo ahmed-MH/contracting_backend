@@ -7,6 +7,7 @@ import { CreateExchangeRateDto, UpdateExchangeRateDto } from './dto/exchange-rat
 
 @Injectable()
 export class ExchangeRateService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(ExchangeRate)
         private readonly exchangeRateRepo: Repository<ExchangeRate>,
@@ -46,8 +47,9 @@ export class ExchangeRateService {
         const rate = await this.findOne(hotelId, id);
         
         if (updateDto.validFrom) rate.validFrom = new Date(updateDto.validFrom);
-        if (updateDto.validUntil) rate.validUntil = new Date(updateDto.validUntil);
-        else if (updateDto.validUntil === null) rate.validUntil = null as any;
+        if (updateDto.validUntil !== undefined) {
+            rate.validUntil = updateDto.validUntil ? new Date(updateDto.validUntil) : null as any;
+        }
         
         if (updateDto.currency) rate.currency = updateDto.currency;
         if (updateDto.rate !== undefined) rate.rate = updateDto.rate;

@@ -3,6 +3,7 @@ import { NestFactory, Reflector } from '@nestjs/core';
 import { ValidationPipe, ClassSerializerInterceptor } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -27,6 +28,9 @@ async function bootstrap() {
       transformOptions: { enableImplicitConversion: true },
     }),
   );
+
+  // ─── HTTP request/response logging (timing + status)
+  app.useGlobalInterceptors(new LoggingInterceptor());
 
   // ─── Auto-serialize: respects @Exclude() on entity fields
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));

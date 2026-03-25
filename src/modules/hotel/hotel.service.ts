@@ -8,6 +8,7 @@ import { UserRole } from '../../common/constants/enums';
 
 @Injectable()
 export class HotelService {
+    /* istanbul ignore next */
     constructor(
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,

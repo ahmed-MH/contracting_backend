@@ -11,9 +11,9 @@ async function bootstrap() {
   // ─── Global API prefix (/api) — excludes root health check
   app.setGlobalPrefix('api', { exclude: ['health'] });
 
-  // ─── CORS for Vite dev server
+  // ─── CORS : autorise le frontend (Docker ou dev local)
   app.enableCors({
-    origin: 'http://localhost:5173',
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-hotel-id'],

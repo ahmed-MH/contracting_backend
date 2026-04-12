@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
-import { Request, Response } from 'express';
+import { AuthenticatedRequest as Request, AuthenticatedResponse as Response } from '../interfaces/request.interface';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {

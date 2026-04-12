@@ -1,4 +1,4 @@
-import {
+﻿import {
     Injectable,
     UnauthorizedException,
     BadRequestException,
@@ -30,11 +30,11 @@ export class AuthService implements OnModuleInit {
         private readonly mailService: MailService,
     ) { }
 
-    // ─── Seed Admin ──────────────────────────────────────────────────
+    // â”€â”€â”€ Seed Admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async onModuleInit(): Promise<void> {
         const existing = await this.usersService.findAdmin();
         if (existing) {
-            this.logger.log(`Admin already exists: ${existing.email}`);
+            this.logger.log(`Supervisor already exists: ${existing.email}`);
             return;
         }
 
@@ -44,13 +44,13 @@ export class AuthService implements OnModuleInit {
             firstName: 'Super',
             lastName: 'Admin',
             password: hashedPassword,
-            role: UserRole.ADMIN,
+            role: UserRole.SUPERVISOR,
         });
 
-        this.logger.log(`🔑 Seed admin created: ${admin.email} / admin123`);
+        this.logger.log(`ðŸ”‘ Seed supervisor created: ${admin.email} / admin123`);
     }
 
-    // ─── Login ───────────────────────────────────────────────────────
+    // â”€â”€â”€ Login â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async login(dto: LoginDto) {
         const user = await this.usersService.findByEmail(dto.email);
         if (!user || !user.password) {
@@ -70,7 +70,8 @@ export class AuthService implements OnModuleInit {
             sub: user.id,
             email: user.email,
             role: user.role,
-            hotelIds: user.hotels?.map(h => h.id) || []
+            hotelIds: user.hotels?.map(h => h.id) || [],
+            tenantId: user.tenantId || null
         };
         return {
             accessToken: this.jwtService.sign(payload),
@@ -84,12 +85,12 @@ export class AuthService implements OnModuleInit {
         };
     }
 
-    // ─── Invite ──────────────────────────────────────────────────────
-    async invite(dto: InviteUserDto) {
+    // â”€â”€â”€ Invite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    async invite(dto: InviteUserDto, currentUser: { tenantId: number | null }) {
         // ADMIN = global, no hotel required. COMMERCIAL = must have at least one hotel.
         if (dto.role === UserRole.COMMERCIAL) {
             if (!dto.hotelIds || dto.hotelIds.length === 0) {
-                throw new BadRequestException('Un COMMERCIAL doit être assigné à au moins un hôtel.');
+                throw new BadRequestException('Un COMMERCIAL doit Ãªtre assignÃ© Ã  au moins un hÃ´tel.');
             }
         }
 
@@ -99,6 +100,7 @@ export class AuthService implements OnModuleInit {
             email: dto.email,
             role: dto.role,
             invitationToken: token,
+            tenantId: currentUser.tenantId,
         });
 
         // Assign hotels only for COMMERCIAL
@@ -111,7 +113,7 @@ export class AuthService implements OnModuleInit {
         return { message: `Invitation sent to ${dto.email}` };
     }
 
-    // ─── Accept Invite ───────────────────────────────────────────────
+    // â”€â”€â”€ Accept Invite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async acceptInvite(dto: AcceptInviteDto) {
         const user = await this.usersService.findByInvitationToken(dto.token);
         if (!user) {
@@ -130,7 +132,8 @@ export class AuthService implements OnModuleInit {
             sub: user.id,
             email: user.email,
             role: user.role,
-            hotelIds: user.hotels?.map(h => h.id) || []
+            hotelIds: user.hotels?.map(h => h.id) || [],
+            tenantId: user.tenantId || null
         };
         return {
             accessToken: this.jwtService.sign(payload),
@@ -144,7 +147,7 @@ export class AuthService implements OnModuleInit {
         };
     }
 
-    // ─── Forgot Password ────────────────────────────────────────────
+    // â”€â”€â”€ Forgot Password â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async forgotPassword(dto: ForgotPasswordDto) {
         const user = await this.usersService.findByEmail(dto.email);
 
@@ -162,7 +165,7 @@ export class AuthService implements OnModuleInit {
         return { message: 'If the email exists, a reset link has been sent.' };
     }
 
-    // ─── Reset Password ─────────────────────────────────────────────
+    // â”€â”€â”€ Reset Password â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async resetPassword(dto: ResetPasswordDto) {
         const user = await this.usersService.findByResetToken(dto.token);
         if (!user) {

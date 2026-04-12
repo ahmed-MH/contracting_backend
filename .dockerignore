@@ -1,8 +1,10 @@
 # Dépendances (seront installées dans le container)
 node_modules/
+.pnpm-store/
 
 # Build output (sera régénéré par le Dockerfile)
 dist/
+*.tsbuildinfo
 
 # Secrets — NE JAMAIS inclure dans l'image
 .env

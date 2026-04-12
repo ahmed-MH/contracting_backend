@@ -108,12 +108,17 @@ Créer un fichier `.env` à la racine du projet :
 
 ```env
 DB_HOST=localhost
-DB_PORT=1433
-DB_USERNAME=sa
+DB_INSTANCE=SQLEXPRESS
+DB_PORT=
+DB_USERNAME=pricify
 DB_PASSWORD=your_secure_password
-DB_DATABASE=hotel_db
+DB_DATABASE=pricify_db
 DB_SYNCHRONIZE=true
+DB_ENCRYPT=false
+DB_TRUST_SERVER_CERTIFICATE=true
 ```
+
+Voir [LOCAL_SQLSERVER_SETUP.md](./LOCAL_SQLSERVER_SETUP.md) pour la configuration complÃ¨te avec SQL Server Express en local.
 
 > ⚠️ **Sécurité** : Ne jamais commiter le fichier `.env`. Il est exclu via `.gitignore`.
 >

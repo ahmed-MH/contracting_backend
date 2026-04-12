@@ -16,7 +16,11 @@ import { PricingModule } from './modules/pricing/pricing.module';
 import { SimulationModule } from './modules/simulation/simulation.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { MailModule } from './modules/mail/mail.module';
+import { TenantsModule } from './modules/tenants/tenants.module';
+import { PlansModule } from './modules/plans/plans.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { CustomIdSubscriber } from './common/subscribers/custom-id.subscriber';
+import { buildNestMssqlConfig } from './config/database.config';
 
 @Module({
   imports: [
@@ -27,21 +31,10 @@ import { CustomIdSubscriber } from './common/subscribers/custom-id.subscriber';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'mssql',
-        host: configService.get<string>('DB_HOST'),
-        port: parseInt(configService.get<string>('DB_PORT') || '1433', 10),
-        username: configService.get<string>('DB_USERNAME'),
-        password: configService.get<string>('DB_PASSWORD'),
-        database: configService.get<string>('DB_DATABASE'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        autoLoadEntities: true,
-        synchronize: configService.get<string>('DB_SYNCHRONIZE') === 'true',
-        options: {
-          encrypt: false,
-          trustServerCertificate: true,
-        },
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildNestMssqlConfig({
+          get: (key) => configService.get<string>(key),
+        }),
     }),
 
     // Feature modules
@@ -52,6 +45,9 @@ import { CustomIdSubscriber } from './common/subscribers/custom-id.subscriber';
     ContractModule,
     PricingModule,
     SimulationModule,
+    TenantsModule,
+    PlansModule,
+    SubscriptionsModule,
 
     // Auth & Mail
     AuthModule,

@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
 import {
     Controller,
     Get,
@@ -24,7 +25,7 @@ export class ContractMonoparentalRuleController {
         private readonly monoparentalService: ContractMonoparentalRuleService,
     ) { }
 
-    private getHotelId(req: Request): number {
+    private getHotelId(req: AuthenticatedRequest): number {
         const hotelId = Number(req.headers['x-hotel-id']);
         if (!hotelId || isNaN(hotelId)) {
             throw new Error('Missing or invalid x-hotel-id header');
@@ -39,7 +40,7 @@ export class ContractMonoparentalRuleController {
 
     @Post('import')
     importFromTemplate(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Body() dto: ImportMonoparentalRuleDto,
     ) {

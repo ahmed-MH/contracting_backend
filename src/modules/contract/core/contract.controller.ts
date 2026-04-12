@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
 import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Req } from '@nestjs/common';
 import { ContractService } from './contract.service';
 import { CreateContractDto } from './dto/create-contract.dto';
@@ -15,7 +16,7 @@ import { Request } from 'express';
 export class ContractController {
     constructor(private readonly contractService: ContractService) { }
 
-    private getHotelId(req: Request): number {
+    private getHotelId(req: AuthenticatedRequest): number {
         const hotelId = Number(req.headers['x-hotel-id']);
         if (!hotelId || isNaN(hotelId)) {
             throw new Error('Missing or invalid x-hotel-id header');
@@ -24,23 +25,23 @@ export class ContractController {
     }
 
     @Post()
-    createContract(@Req() req: Request, @Body() dto: CreateContractDto) {
+    createContract(@Req() req: AuthenticatedRequest, @Body() dto: CreateContractDto) {
         return this.contractService.createContract(this.getHotelId(req), dto);
     }
 
     @Get()
-    findAll(@Req() req: Request) {
+    findAll(@Req() req: AuthenticatedRequest) {
         return this.contractService.findAll(this.getHotelId(req));
     }
 
     @Get(':id')
-    getContractDetails(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    getContractDetails(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
         return this.contractService.getContractDetails(this.getHotelId(req), id);
     }
 
     @Patch(':id')
     updateContract(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateContractDto,
     ) {
@@ -49,7 +50,7 @@ export class ContractController {
 
     @Post(':id/periods')
     addPeriod(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: CreatePeriodDto,
     ) {
@@ -58,7 +59,7 @@ export class ContractController {
 
     @Post(':id/rooms')
     addContractRoom(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: CreateContractRoomDto,
     ) {
@@ -67,7 +68,7 @@ export class ContractController {
 
     @Delete(':id/periods/:periodId')
     deletePeriod(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Param('periodId', ParseIntPipe) periodId: number,
     ) {
@@ -76,7 +77,7 @@ export class ContractController {
 
     @Delete(':id/rooms/:roomId')
     deleteContractRoom(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Param('roomId', ParseIntPipe) roomId: number,
     ) {
@@ -84,13 +85,13 @@ export class ContractController {
     }
 
     @Get(':id/prices')
-    getContractPrices(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    getContractPrices(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
         return this.contractService.getContractPrices(this.getHotelId(req), id);
     }
 
     @Post(':id/prices/batch')
     batchUpsertPrices(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: BatchUpsertPricesDto,
     ) {

@@ -86,6 +86,8 @@ export class ContractSpoService {
         const isDiscount = ['PERCENTAGE_DISCOUNT', 'FIXED_DISCOUNT'].includes(template.benefitType);
         const baseValue = (template.value && Number(template.value) !== 0) ? template.value : (isDiscount ? template.benefitValue : template.value);
 
+        const periods = await this.periodRepo.find({ where: { contract: { id: contractId } } });
+
         const spo = this.contractSpoRepo.create({
             name: template.name,
             conditionType: template.conditionType,
@@ -98,7 +100,7 @@ export class ContractSpoService {
             payNights: template.payNights ?? 0,
             contract,
             templateSpo: template,
-            applicablePeriods: [],
+            applicablePeriods: periods.map(p => ({ period: p, contractSpo: undefined })),
             applicableContractRooms: [],
             applicableArrangements: [],
         });

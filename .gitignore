@@ -1,23 +1,32 @@
 # ==============================
-# 1. DÉPENDANCES
+# 1. DEPENDENCIES
 # ==============================
 node_modules/
+.pnpm-store/
 
 # ==============================
 # 2. BUILD / COMPILATION
 # ==============================
 dist/
+dist-tsc/
 
 # ==============================
-# 3. SÉCURITÉ — Fichiers d'environnement
-# Ne JAMAIS commiter de secrets (mots de passe DB, clés API, tokens)
+# 3. SECURITY & CREDENTIALS
 # ==============================
+# Never commit environment variables, API keys, or certificates
 .env
 .env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.cert
+gha-creds-*.json
 
 # ==============================
 # 4. LOGS
 # ==============================
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -26,36 +35,37 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # ==============================
-# 5. SYSTÈME — Fichiers parasites OS
+# 5. SYSTEM
 # ==============================
-# macOS
 .DS_Store
-# Windows
 Thumbs.db
 ehthumbs.db
 Desktop.ini
 
 # ==============================
-# 6. IDE / ÉDITEURS
+# 6. IDE / EDITORS
 # ==============================
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
 *~
 
 # ==============================
-# 7. TESTS — Couverture de code
+# 7. TESTS & COVERAGE
 # ==============================
 coverage/
+.nyc_output/
 
 # ==============================
-# 8. DIVERS — TypeScript / NestJS
+# 8. MISC (TypeScript / NestJS)
 # ==============================
-# Fichiers de cache TypeScript
 *.tsbuildinfo
-# Diagnostic reports Node.js (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-
 .gemini/
-gha-creds-*.json
+tmp/
+temp/
+sqlite/*.sqlite
+sqlite/*.sqlite-journal
+uploads/

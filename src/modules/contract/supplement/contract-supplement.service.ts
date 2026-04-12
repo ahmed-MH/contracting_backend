@@ -110,6 +110,19 @@ export class ContractSupplementService {
                 });
                 await this.csPeriodRepo.save(junction);
             }
+        } else {
+            // Default to all periods
+            const periods = await this.periodRepo.find({
+                where: { contract: { id: contractId } },
+            });
+            const junctions = periods.map((period) =>
+                this.csPeriodRepo.create({
+                    contractSupplement: saved,
+                    period,
+                    overrideValue: null,
+                }),
+            );
+            await this.csPeriodRepo.save(junctions);
         }
 
         // Return with relations loaded

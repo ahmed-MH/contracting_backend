@@ -113,16 +113,16 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
     describe('Exceptions & Validations', () => {
         it('should throw NotFoundException if contract not found', async () => {
             repos.contract.findOne.mockResolvedValue(null);
-            await expect(service.calculate({ contractId: 999 } as any)).rejects.toThrow('Contract #999 not found');
+            await expect(service.calculate(1, { contractId: 999 } as any)).rejects.toThrow('Contract #999 not found');
         });
 
         it('should throw BadRequestException if contract is not active', async () => {
             repos.contract.findOne.mockResolvedValue({ ...mockContract, status: ContractStatus.DRAFT });
-            await expect(service.calculate({ contractId: 1 } as any)).rejects.toThrow('is not ACTIVE');
+            await expect(service.calculate(1, { contractId: 1 } as any)).rejects.toThrow('is not ACTIVE');
         });
 
         it('should throw BadRequestException if checkOut is before checkIn', async () => {
-            await expect(service.calculate({ 
+            await expect(service.calculate(1, { 
                 contractId: 1, 
                 checkIn: '2025-01-10', 
                 checkOut: '2025-01-05' 
@@ -131,7 +131,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
     });
 
     it('Test 1 (Le Basique) : 2 Adultes, 1 nuit standard (Attendu : 200 TND)', async () => {
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
@@ -155,7 +155,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
 
         repos.reduction.find.mockResolvedValue([reductionEnfant]);
 
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
@@ -202,7 +202,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
         repos.reduction.find.mockResolvedValue([reductionEnfant]);
         repos.supplement.find.mockResolvedValue([galaAdult, galaChild]);
 
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1,
             checkIn: '2025-12-31',
@@ -237,7 +237,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
         repos.supplement.find.mockResolvedValue([singleSupp]);
         repos.monoparental.find.mockResolvedValue([monoRule]);
 
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
@@ -260,7 +260,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
 
         repos.earlyBooking.find.mockResolvedValue([ebRule]);
 
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
@@ -302,7 +302,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
             prices: [{ amount: 100, arrangement: mockArrangementRO }],
         }]);
 
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1, 
             checkIn: '2025-06-01',
@@ -332,7 +332,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
             }
         ]);
 
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
@@ -370,7 +370,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
             prices: [{ amount: 100, arrangement: mockArrangementRO }],
         }]);
 
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
@@ -392,7 +392,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
 
         repos.reduction.find.mockResolvedValue([thirdAdultRule]);
 
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
@@ -433,7 +433,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
             prices: [{ amount: 100, arrangement: mockArrangementRO }],
         }]);
 
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',
@@ -457,7 +457,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
 
         repos.reduction.find.mockResolvedValue([reductionEnfant]);
 
-        const res = await service.calculate({
+        const res = await service.calculate(1, {
             contractId: 1,
             boardTypeId: 1,
             checkIn: '2025-06-01',

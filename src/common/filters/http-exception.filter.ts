@@ -6,7 +6,7 @@ import {
     HttpStatus,
     Logger,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
+import { AuthenticatedRequest as Request, AuthenticatedResponse as Response } from '../interfaces/request.interface';
 
 /**
  * Global HTTP exception filter that normalizes error responses

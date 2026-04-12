@@ -63,7 +63,7 @@ describe('PricingService', () => {
             const existingLine = { id: 100 };
             mockLineRepo.findOne.mockResolvedValue(existingLine);
 
-            const result = await service.initContractLine(dto);
+            const result = await service.initContractLine(1, dto);
             expect(result).toEqual(existingLine);
             expect(mockLineRepo.findOne).toHaveBeenCalledWith({
                 where: { period: { id: dto.periodId }, contractRoom: { id: dto.contractRoomId } },
@@ -79,7 +79,7 @@ describe('PricingService', () => {
             mockLineRepo.create.mockReturnValue(newLine);
             mockLineRepo.save.mockResolvedValue(newLine);
 
-            const result = await service.initContractLine(dto);
+            const result = await service.initContractLine(1, dto);
             expect(result).toEqual(newLine);
             expect(mockLineRepo.save).toHaveBeenCalledWith(newLine);
         });
@@ -87,27 +87,27 @@ describe('PricingService', () => {
         it('should throw NotFoundException if period not found', async () => {
             mockLineRepo.findOne.mockResolvedValue(null);
             mockPeriodRepo.findOne.mockResolvedValue(null);
-            await expect(service.initContractLine(dto)).rejects.toThrow(NotFoundException);
+            await expect(service.initContractLine(1, dto)).rejects.toThrow(NotFoundException);
         });
 
         it('should throw BadRequestException if period belongs to different contract', async () => {
             mockLineRepo.findOne.mockResolvedValue(null);
             mockPeriodRepo.findOne.mockResolvedValue({ id: 1, contract: { id: 2 } });
-            await expect(service.initContractLine(dto)).rejects.toThrow(BadRequestException);
+            await expect(service.initContractLine(1, dto)).rejects.toThrow(BadRequestException);
         });
 
         it('should throw NotFoundException if contractRoom not found', async () => {
             mockLineRepo.findOne.mockResolvedValue(null);
             mockPeriodRepo.findOne.mockResolvedValue(mockPeriod);
             mockContractRoomRepo.findOne.mockResolvedValue(null);
-            await expect(service.initContractLine(dto)).rejects.toThrow(NotFoundException);
+            await expect(service.initContractLine(1, dto)).rejects.toThrow(NotFoundException);
         });
 
         it('should throw BadRequestException if contractRoom belongs to different contract', async () => {
             mockLineRepo.findOne.mockResolvedValue(null);
             mockPeriodRepo.findOne.mockResolvedValue(mockPeriod);
             mockContractRoomRepo.findOne.mockResolvedValue({ id: 1, contract: { id: 2 } });
-            await expect(service.initContractLine(dto)).rejects.toThrow(BadRequestException);
+            await expect(service.initContractLine(1, dto)).rejects.toThrow(BadRequestException);
         });
     });
 
@@ -124,7 +124,7 @@ describe('PricingService', () => {
             mockPriceRepo.findOne.mockResolvedValue(existingPrice);
             mockPriceRepo.save.mockResolvedValue({ ...existingPrice, amount: 150 });
 
-            const result = await service.setPrice(dto);
+            const result = await service.setPrice(1, dto);
             expect(result.amount).toBe(150);
             expect(mockPriceRepo.save).toHaveBeenCalledWith(expect.objectContaining({ amount: 150 }));
         });
@@ -138,20 +138,20 @@ describe('PricingService', () => {
             mockPriceRepo.create.mockReturnValue(newPrice);
             mockPriceRepo.save.mockResolvedValue(newPrice);
 
-            const result = await service.setPrice(dto);
+            const result = await service.setPrice(1, dto);
             expect(result).toEqual(newPrice);
             expect(mockPriceRepo.create).toHaveBeenCalled();
         });
 
         it('should throw NotFoundException if line not found', async () => {
             mockLineRepo.findOne.mockResolvedValue(null);
-            await expect(service.setPrice(dto)).rejects.toThrow(NotFoundException);
+            await expect(service.setPrice(1, dto)).rejects.toThrow(NotFoundException);
         });
 
         it('should throw NotFoundException if arrangement not found', async () => {
             mockLineRepo.findOne.mockResolvedValue(mockLine);
             mockArrangementRepo.findOne.mockResolvedValue(null);
-            await expect(service.setPrice(dto)).rejects.toThrow(NotFoundException);
+            await expect(service.setPrice(1, dto)).rejects.toThrow(NotFoundException);
         });
     });
 
@@ -166,14 +166,14 @@ describe('PricingService', () => {
             mockPromotionRepo.find.mockResolvedValue(mockPromos);
             mockLineRepo.save.mockResolvedValue({ ...mockLine, promotions: mockPromos });
 
-            const result = await service.setLinePromotions(dto);
+            const result = await service.setLinePromotions(1, dto);
             expect(result.promotions).toEqual(mockPromos);
             expect(mockLineRepo.save).toHaveBeenCalledWith({ ...mockLine, promotions: mockPromos });
         });
 
         it('should throw NotFoundException if line not found', async () => {
             mockLineRepo.findOne.mockResolvedValue(null);
-            await expect(service.setLinePromotions(dto)).rejects.toThrow(NotFoundException);
+            await expect(service.setLinePromotions(1, dto)).rejects.toThrow(NotFoundException);
         });
 
         it('should throw NotFoundException if not all promotions found', async () => {
@@ -181,7 +181,7 @@ describe('PricingService', () => {
             mockLineRepo.findOne.mockResolvedValue(mockLine);
             mockPromotionRepo.find.mockResolvedValue([{ id: 1 }]); // missing 2
 
-            await expect(service.setLinePromotions(dto)).rejects.toThrow(NotFoundException);
+            await expect(service.setLinePromotions(1, dto)).rejects.toThrow(NotFoundException);
         });
     });
 
@@ -191,14 +191,14 @@ describe('PricingService', () => {
             mockLineRepo.findOne.mockResolvedValue(mockLine);
             mockLineRepo.save.mockResolvedValue({ ...mockLine, allotment: 10 });
 
-            const result = await service.setAllotment({ contractLineId: 1, quantity: 10 });
+            const result = await service.setAllotment(1, { contractLineId: 1, quantity: 10 });
             expect(result.allotment).toBe(10);
             expect(mockLineRepo.save).toHaveBeenCalledWith({ ...mockLine, allotment: 10 });
         });
 
         it('should throw NotFoundException if line not found', async () => {
             mockLineRepo.findOne.mockResolvedValue(null);
-            await expect(service.setAllotment({ contractLineId: 1, quantity: 10 })).rejects.toThrow(NotFoundException);
+            await expect(service.setAllotment(1, { contractLineId: 1, quantity: 10 })).rejects.toThrow(NotFoundException);
         });
     });
 
@@ -207,7 +207,7 @@ describe('PricingService', () => {
             const mockLines = [{ id: 1 }];
             mockLineRepo.find.mockResolvedValue(mockLines);
 
-            const result = await service.getMatrix(1);
+            const result = await service.getMatrix(1, 1);
             expect(result).toEqual(mockLines);
             expect(mockLineRepo.find).toHaveBeenCalledWith(expect.objectContaining({
                 where: { period: { contract: { id: 1 } } },
@@ -217,7 +217,7 @@ describe('PricingService', () => {
 
         it('should throw NotFoundException if matrix is empty', async () => {
             mockLineRepo.find.mockResolvedValue([]);
-            await expect(service.getMatrix(1)).rejects.toThrow(NotFoundException);
+            await expect(service.getMatrix(1, 1)).rejects.toThrow(NotFoundException);
         });
     });
 });

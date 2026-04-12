@@ -1,6 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, DeleteDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, ManyToOne, JoinColumn, DeleteDateColumn } from 'typeorm';
 import { AffiliateType } from '../../../common/constants/enums';
 import { Contract } from '../../contract/core/entities/contract.entity';
+import { Hotel } from '../../hotel/entities/hotel.entity';
 
 export interface AffiliateEmail {
     label: string;
@@ -11,6 +12,10 @@ export interface AffiliateEmail {
 export class Affiliate {
     @PrimaryGeneratedColumn()
     id: number;
+
+    @ManyToOne(() => Hotel, (hotel) => hotel.affiliates, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'hotelId' })
+    hotel: Hotel;
 
     @Column()
     hotelId: number;

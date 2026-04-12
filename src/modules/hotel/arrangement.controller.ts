@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../../common/interfaces/request.interface';
 import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Req } from '@nestjs/common';
 import { ArrangementService } from './arrangement.service';
 import { CreateArrangementDto } from './dto/create-arrangement.dto';
@@ -11,7 +12,7 @@ import { Request } from 'express';
 export class ArrangementController {
     constructor(private readonly arrangementService: ArrangementService) { }
 
-    private getHotelId(req: Request): number {
+    private getHotelId(req: AuthenticatedRequest): number {
         const hotelId = Number(req.headers['x-hotel-id']);
         if (!hotelId || isNaN(hotelId)) {
             throw new Error('Missing or invalid x-hotel-id header');
@@ -20,23 +21,23 @@ export class ArrangementController {
     }
 
     @Post('arrangements')
-    createArrangement(@Req() req: Request, @Body() dto: CreateArrangementDto) {
+    createArrangement(@Req() req: AuthenticatedRequest, @Body() dto: CreateArrangementDto) {
         return this.arrangementService.createArrangement(this.getHotelId(req), dto);
     }
 
     @Get('arrangements')
-    findAllArrangements(@Req() req: Request) {
+    findAllArrangements(@Req() req: AuthenticatedRequest) {
         return this.arrangementService.findAllArrangements(this.getHotelId(req));
     }
 
     @Get('arrangements/archived')
-    findArchivedArrangements(@Req() req: Request) {
+    findArchivedArrangements(@Req() req: AuthenticatedRequest) {
         return this.arrangementService.findArchivedArrangements(this.getHotelId(req));
     }
 
     @Patch('arrangements/:id')
     updateArrangement(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateArrangementDto,
     ) {
@@ -44,12 +45,12 @@ export class ArrangementController {
     }
 
     @Delete('arrangements/:id')
-    removeArrangement(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    removeArrangement(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
         return this.arrangementService.removeArrangement(this.getHotelId(req), id);
     }
 
     @Patch('arrangements/:id/restore')
-    restoreArrangement(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    restoreArrangement(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
         return this.arrangementService.restoreArrangement(this.getHotelId(req), id);
     }
 }

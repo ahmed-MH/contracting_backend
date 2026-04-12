@@ -1,9 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, DeleteDateColumn, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, DeleteDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { TemplateMonoparentalRule } from '../../catalog/monoparental/entities/template-monoparental-rule.entity';
 import { TemplateEarlyBooking } from '../../catalog/early-booking/entities/template-early-booking.entity';
 import { TemplateSpo } from '../../catalog/spo/entities/template-spo.entity';
 import { TemplateCancellationRule } from '../../catalog/cancellation/entities/template-cancellation-rule.entity';
+import { Tenant } from '../../tenants/entities/tenant.entity';
+import { Affiliate } from '../../affiliate/entities/affiliate.entity';
 
 export interface HotelEmail {
     label: string;   // ex: "Réservations", "Direction", "Facturation"
@@ -103,6 +105,19 @@ export class Hotel {
 
     @ManyToMany(() => User, (user) => user.hotels)
     users: User[];
+
+    @ManyToOne(() => Tenant, (tenant) => tenant.hotels, { nullable: true })
+    @JoinColumn({ name: 'tenantId' })
+    tenant: Tenant;
+
+    @Column({ nullable: true })
+    tenantId: number;
+
+    @OneToMany(() => Affiliate, (affiliate) => affiliate.hotel, {
+        cascade: true,
+        onDelete: 'CASCADE',
+    })
+    affiliates: Affiliate[];
 
     @DeleteDateColumn()
     deletedAt: Date;

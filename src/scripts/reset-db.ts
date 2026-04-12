@@ -22,6 +22,7 @@ import { ContractSpoService } from '../modules/contract/spo/contract-spo.service
 import { ContractCancellationService } from '../modules/contract/cancellation/contract-cancellation.service';
 import { ExchangeRateService } from '../modules/hotel/exchange-rate.service';
 import { UsersService } from '../modules/users/users.service';
+import { TenantsService } from '../modules/tenants/tenants.service';
 import { Arrangement } from '../modules/hotel/entities/arrangement.entity';
 import { Affiliate } from '../modules/affiliate/entities/affiliate.entity';
 import { RoomType } from '../modules/hotel/entities/room-type.entity';
@@ -89,6 +90,15 @@ async function resetDb() {
         const contractService = app.get(ContractService);
         const exchangeRateService = app.get(ExchangeRateService);
         const usersService = app.get(UsersService);
+        const tenantsService = app.get(TenantsService);
+
+        // 0. Tenant
+        const tenant = await tenantsService.create({
+            name: 'Marriott Tunisia',
+            isActive: true,
+        });
+        const tenantContext = { tenantId: tenant.id };
+        console.log(`Tenant "${tenant.name}" created successfully! (ID: ${tenant.id})`);
 
         // 1. Hotel
         const hotel = await hotelService.createHotel({
@@ -110,7 +120,7 @@ async function resetDb() {
                 { label: 'Direction', address: 'direction@sousse-pearl.com' },
                 { label: 'Facturation', address: 'facturation@sousse-pearl.com' },
             ],
-        });
+        }, tenantContext);
         console.log(`🏨 Hôtel "${hotel.name}" créé avec succès ! (ID: ${hotel.id})`);
 
         // 1.5 Exchange Rates
@@ -323,8 +333,36 @@ async function resetDb() {
         // 14. Users
         console.log('\n👤 Utilisateurs:');
         const bcrypt = await import('bcrypt');
-        const hashedPw = await bcrypt.hash('commercial123', 10);
-        const commUser = await usersService.createSeedAdmin({ email: 'commercial@marriott.com', firstName: 'Ahmed', lastName: 'Commercial', password: hashedPw, role: UserRole.COMMERCIAL });
+        const supervisorPassword = await bcrypt.hash('admin123', 10);
+        await usersService.createSeedAdmin({
+            email: 'admin@marriott.com',
+            firstName: 'Super',
+            lastName: 'Admin',
+            password: supervisorPassword,
+            role: UserRole.SUPERVISOR,
+        });
+        console.log('  Utilisateur SUPERVISOR: admin@marriott.com / admin123');
+
+        const adminPassword = await bcrypt.hash('tenantadmin123', 10);
+        await usersService.createSeedAdmin({
+            email: 'admin.tunisia@marriott.com',
+            firstName: 'Tenant',
+            lastName: 'Admin',
+            password: adminPassword,
+            role: UserRole.ADMIN,
+            tenantId: tenant.id,
+        });
+        console.log('  Utilisateur ADMIN: admin.tunisia@marriott.com / tenantadmin123');
+
+        const commercialPassword = await bcrypt.hash('commercial123', 10);
+        const commUser = await usersService.createSeedAdmin({
+            email: 'commercial@marriott.com',
+            firstName: 'Ahmed',
+            lastName: 'Commercial',
+            password: commercialPassword,
+            role: UserRole.COMMERCIAL,
+            tenantId: tenant.id,
+        });
         await usersService.update(commUser.id, { hotelIds: [hotel.id] });
         console.log(`  👤  Utilisateur COMMERCIAL: commercial@marriott.com / commercial123`);
 

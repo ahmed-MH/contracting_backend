@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, ParseIntPipe, Headers } from '@nestjs/common';
 import { PricingService } from './pricing.service';
 import { InitContractLineDto } from './dto/init-contract-line.dto';
 import { SetPriceDto } from './dto/set-price.dto';
@@ -15,31 +15,31 @@ export class PricingController {
 
     // Initialize a contract line (Period × Room intersection)
     @Post('lines')
-    initContractLine(@Body() dto: InitContractLineDto) {
-        return this.pricingService.initContractLine(dto);
+    initContractLine(@Headers('x-hotel-id') hotelId: string, @Body() dto: InitContractLineDto) {
+        return this.pricingService.initContractLine(parseInt(hotelId, 10), dto);
     }
 
     // Set or update a price for a line × arrangement pair
     @Post('prices')
-    setPrice(@Body() dto: SetPriceDto) {
-        return this.pricingService.setPrice(dto);
+    setPrice(@Headers('x-hotel-id') hotelId: string, @Body() dto: SetPriceDto) {
+        return this.pricingService.setPrice(parseInt(hotelId, 10), dto);
     }
 
     // Replace the promotions assigned to a contract line
     @Post('promotions')
-    setLinePromotions(@Body() dto: ManageLinePromosDto) {
-        return this.pricingService.setLinePromotions(dto);
+    setLinePromotions(@Headers('x-hotel-id') hotelId: string, @Body() dto: ManageLinePromosDto) {
+        return this.pricingService.setLinePromotions(parseInt(hotelId, 10), dto);
     }
 
     // Set or update the allotment for a contract line
     @Post('allotments')
-    setAllotment(@Body() dto: SetAllotmentDto) {
-        return this.pricingService.setAllotment(dto);
+    setAllotment(@Headers('x-hotel-id') hotelId: string, @Body() dto: SetAllotmentDto) {
+        return this.pricingService.setAllotment(parseInt(hotelId, 10), dto);
     }
 
     // Get the full pricing matrix for a contract
     @Get('contract/:id')
-    getMatrix(@Param('id', ParseIntPipe) id: number) {
-        return this.pricingService.getMatrix(id);
+    getMatrix(@Headers('x-hotel-id') hotelId: string, @Param('id', ParseIntPipe) id: number) {
+        return this.pricingService.getMatrix(parseInt(hotelId, 10), id);
     }
 }

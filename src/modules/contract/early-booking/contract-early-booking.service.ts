@@ -89,7 +89,13 @@ export class ContractEarlyBookingService {
             contract,
         });
 
-        return this.ebRepo.save(eb);
+        const savedEb = await this.ebRepo.save(eb);
+
+        const periods = await this.periodRepo.find({ where: { contract: { id: contractId } } });
+        const periodJunctions = periods.map(period => this.ebPeriodRepo.create({ contractEarlyBooking: savedEb, period }));
+        await this.ebPeriodRepo.save(periodJunctions);
+
+        return savedEb;
     }
 
     // Update early booking values and/or targeting

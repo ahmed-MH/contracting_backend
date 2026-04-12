@@ -85,7 +85,13 @@ export class ContractReductionService {
             contract,
         });
 
-        return this.reductionRepo.save(reduction);
+        const savedReduction = await this.reductionRepo.save(reduction);
+
+        const periods = await this.periodRepo.find({ where: { contract: { id: contractId } } });
+        const periodJunctions = periods.map(period => this.crPeriodRepo.create({ contractReduction: savedReduction, period }));
+        await this.crPeriodRepo.save(periodJunctions);
+
+        return savedReduction;
     }
 
     // Update reduction values and/or targeting

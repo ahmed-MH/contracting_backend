@@ -10,6 +10,8 @@ import { Public } from '../../common/decorators/public.decorator';
 import { SkipHotelCheck } from '../../common/decorators/skip-hotel-check.decorator';
 import { UserRole } from '../../common/constants/enums';
 import { UsersService } from '../users/users.service';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../common/interfaces/request.interface';
 
 @Controller('auth')
 @SkipHotelCheck()
@@ -55,13 +57,13 @@ export class AuthController {
 
     @Post('invite')
     @Roles(UserRole.ADMIN)
-    invite(@Body() dto: InviteUserDto) {
-        return this.authService.invite(dto);
+    invite(@Body() dto: InviteUserDto, @CurrentUser() user: RequestUser) {
+        return this.authService.invite(dto, user);
     }
 
     @Get('users')
     @Roles(UserRole.ADMIN)
-    listUsers() {
-        return this.usersService.findAll();
+    listUsers(@CurrentUser() user: RequestUser) {
+        return this.usersService.findAll(user);
     }
 }

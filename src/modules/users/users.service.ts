@@ -1,10 +1,11 @@
 import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull, In } from 'typeorm';
 import { User } from './entities/user.entity';
 import { UserRole } from '../../common/constants/enums';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Hotel } from '../hotel/entities/hotel.entity';
+import { RequestUser } from '../../common/interfaces/request.interface';
 
 @Injectable()
 export class UsersService {
@@ -33,13 +34,14 @@ export class UsersService {
     }
 
     async findAdmin(): Promise<User | null> {
-        return this.userRepo.findOne({ where: { role: UserRole.ADMIN } });
+        return this.userRepo.findOne({ where: { role: In([UserRole.ADMIN, UserRole.SUPERVISOR]) } });
     }
 
     async createInvitedUser(data: {
         email: string;
         role: UserRole;
         invitationToken: string;
+        tenantId?: number | null;
     }): Promise<User> {
         const existing = await this.findByEmail(data.email);
         if (existing) {
@@ -50,6 +52,7 @@ export class UsersService {
             role: data.role,
             invitationToken: data.invitationToken,
             isActive: false,
+            tenantId: data.tenantId || undefined,
         });
         return this.userRepo.save(user);
     }
@@ -60,10 +63,12 @@ export class UsersService {
         lastName: string;
         password: string;
         role: UserRole;
+        tenantId?: number | null;
     }): Promise<User> {
         const user = this.userRepo.create({
             ...data,
             isActive: true,
+            tenantId: data.tenantId || undefined,
         });
         return this.userRepo.save(user);
     }
@@ -72,9 +77,42 @@ export class UsersService {
         return this.userRepo.save(user);
     }
 
-    async findAll(): Promise<Omit<User, 'password'>[]> {
-        const users = await this.userRepo.find({ relations: ['hotels'] });
-        return users.map(({ password, ...rest }) => { void password; return rest; });
+    async findAll(currentUser: RequestUser): Promise<Omit<User, 'password'>[]> {
+        let users: User[] = [];
+
+        if (currentUser.role === UserRole.SUPERVISOR) {
+            users = await this.userRepo.find({ relations: ['hotels'] });
+        } else if (currentUser.role === UserRole.ADMIN) {
+            users = await this.userRepo.find({
+                where: { tenantId: currentUser.tenantId ?? IsNull() },
+                relations: ['hotels'],
+            });
+        } else if (currentUser.role === UserRole.COMMERCIAL || currentUser.role === UserRole.AGENT) {
+            const self = await this.userRepo.findOne({
+                where: { id: currentUser.id },
+                relations: ['hotels'],
+            });
+
+            if (!self) {
+                return [];
+            }
+
+            const hotelIds = self.hotels?.map((hotel) => hotel.id) ?? [];
+            if (hotelIds.length === 0) {
+                users = [self];
+            } else {
+                users = await this.userRepo
+                    .createQueryBuilder('user')
+                    .leftJoinAndSelect('user.hotels', 'hotel')
+                    .where('hotel.id IN (:...hotelIds)', { hotelIds })
+                    .getMany();
+            }
+        }
+
+        return users.map(({ password, ...rest }) => {
+            void password;
+            return rest;
+        });
     }
 
     async update(id: number, dto: UpdateUserDto): Promise<User> {

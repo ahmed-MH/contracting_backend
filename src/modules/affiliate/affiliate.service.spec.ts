@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { AffiliateService } from './affiliate.service';
 import { Affiliate } from './entities/affiliate.entity';
 import { NotFoundException } from '@nestjs/common';
+import { AffiliateType } from '../../common/constants/enums';
 
 describe('AffiliateService', () => {
     let service: AffiliateService;
@@ -19,7 +20,7 @@ describe('AffiliateService', () => {
 
     const mockHotelId = 1;
     const mockId = 100;
-    const mockAffiliate = { id: mockId, name: 'TUI', hotelId: mockHotelId, contracts: [] } as any;
+    const mockAffiliate = { id: mockId, companyName: 'TUI', hotelId: mockHotelId, contracts: [] } as any;
 
     beforeEach(async () => {
         const module: TestingModule = await Test.createTestingModule({
@@ -38,7 +39,7 @@ describe('AffiliateService', () => {
             mockAffiliateRepo.create.mockReturnValue(mockAffiliate);
             mockAffiliateRepo.save.mockResolvedValue(mockAffiliate);
 
-            const result = await service.create(mockHotelId, { name: 'TUI', email: 'test@tui.com', phone: '123', address: 'London' });
+            const result = await service.create(mockHotelId, { companyName: 'TUI', phone: '123', address: 'London', affiliateType: AffiliateType.TOUR_OPERATOR });
             expect(result).toEqual(mockAffiliate);
         });
     });
@@ -81,18 +82,18 @@ describe('AffiliateService', () => {
     describe('update', () => {
         it('should update an affiliate', async () => {
             mockAffiliateRepo.preload.mockResolvedValue(mockAffiliate);
-            mockAffiliateRepo.save.mockResolvedValue({ ...mockAffiliate, name: 'Updated' });
+            mockAffiliateRepo.save.mockResolvedValue({ ...mockAffiliate, companyName: 'Updated' });
 
-            const result = await service.update(mockHotelId, mockId, { name: 'Updated' });
-            expect(result.name).toEqual('Updated');
+            const result = await service.update(mockHotelId, mockId, { companyName: 'Updated' });
+            expect(result.companyName).toEqual('Updated');
         });
 
         it('should throw NotFoundException if affiliate not found or hotel mismatch', async () => {
             mockAffiliateRepo.preload.mockResolvedValue(null);
-            await expect(service.update(mockHotelId, mockId, { name: 'Updated' })).rejects.toThrow(NotFoundException);
+            await expect(service.update(mockHotelId, mockId, { companyName: 'Updated' })).rejects.toThrow(NotFoundException);
 
             mockAffiliateRepo.preload.mockResolvedValue({ id: mockId, hotelId: 999 });
-            await expect(service.update(mockHotelId, mockId, { name: 'Updated' })).rejects.toThrow(NotFoundException);
+            await expect(service.update(mockHotelId, mockId, { companyName: 'Updated' })).rejects.toThrow(NotFoundException);
         });
     });
 

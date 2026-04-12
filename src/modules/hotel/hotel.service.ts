@@ -16,13 +16,55 @@ export class HotelService {
 
     // ─── Hotel ────────────────────────────────────────────────────────
 
-    async createHotel(dto: CreateHotelDto): Promise<Hotel> {
-        const hotel = this.hotelRepo.create(dto);
+    async createHotel(dto: CreateHotelDto, currentUser: { tenantId: number | null }): Promise<Hotel> {
+        const hotel = this.hotelRepo.create({
+            ...dto,
+            tenantId: currentUser.tenantId || undefined,
+        });
         return this.hotelRepo.save(hotel);
     }
 
-    async findAllHotels(user?: { id: number; role: UserRole }): Promise<Hotel[]> {
-        if (user && user.role === UserRole.COMMERCIAL) {
+    async findById(
+        id: number,
+        user?: { id: number; role: UserRole; tenantId: number | null },
+    ): Promise<Hotel | null> {
+        if (!user) {
+            return this.hotelRepo.findOne({ where: { id } });
+        }
+
+        if (user.role === UserRole.SUPERVISOR) {
+            return this.hotelRepo.findOne({ where: { id } });
+        }
+
+        if (user.role === UserRole.ADMIN) {
+            const tenantCondition = user.tenantId ?? IsNull();
+            return this.hotelRepo.findOne({ where: { id, tenantId: tenantCondition } });
+        }
+
+        if (user.role === UserRole.COMMERCIAL || user.role === UserRole.AGENT) {
+            return this.hotelRepo.findOne({
+                where: { id, users: { id: user.id } },
+                relations: ['users'],
+            });
+        }
+
+        return this.hotelRepo.findOne({ where: { id } });
+    }
+
+    async findAllHotels(user?: { id: number; role: UserRole; tenantId: number | null }): Promise<Hotel[]> {
+        if (!user) return this.hotelRepo.find();
+
+        if (user.role === UserRole.SUPERVISOR) {
+            return this.hotelRepo.find();
+        }
+
+        if (user.role === UserRole.ADMIN) {
+            return this.hotelRepo.find({
+                where: { tenantId: user.tenantId ?? IsNull() }
+            });
+        }
+
+        if (user.role === UserRole.COMMERCIAL || user.role === UserRole.AGENT) {
             return this.hotelRepo.find({
                 where: {
                     users: { id: user.id }
@@ -30,6 +72,7 @@ export class HotelService {
                 relations: ['users']
             });
         }
+
         return this.hotelRepo.find();
     }
 
@@ -61,16 +104,4 @@ export class HotelService {
             throw new NotFoundException(`Hotel #${id} not found or not archived`);
         }
     }
-
-    // ─── Room Types (Extracted to RoomTypeService) ────────────────
-
-    // ─── Arrangements (Extracted to ArrangementService) ────────────────
-
-    // ─── Template Supplements (Extracted) ────────────────
-
-    // ─── Template Reductions (Extracted) ────────────────
-
-    // ─── Template Monoparental Rules (Extracted) ────────────────
-
-    // ─── Template Early Bookings (Extracted) ────────────────
 }

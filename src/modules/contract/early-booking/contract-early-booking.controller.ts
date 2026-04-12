@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
 import { Controller, Get, Post, Body, Patch, Param, Delete, Req, ParseIntPipe } from '@nestjs/common';
 import { Request } from 'express';
 import { Roles } from '../../../common/decorators/roles.decorator';
@@ -11,7 +12,7 @@ import { UpdateContractEarlyBookingDto } from './dto/update-contract-early-booki
 export class ContractEarlyBookingController {
     constructor(private readonly contractEarlyBookingService: ContractEarlyBookingService) { }
 
-    private getHotelId(req: Request): number {
+    private getHotelId(req: AuthenticatedRequest): number {
         const hotelId = Number(req.headers['x-hotel-id']);
         if (!hotelId || isNaN(hotelId)) {
             throw new Error('Missing or invalid x-hotel-id header');
@@ -26,7 +27,7 @@ export class ContractEarlyBookingController {
 
     @Post(':contractId/early-bookings/import')
     importFromTemplate(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Body() dto: ImportEarlyBookingDto,
     ) {

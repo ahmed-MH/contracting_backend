@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
 import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Query, Req } from '@nestjs/common';
 import { TemplateEarlyBookingService } from './template-early-booking.service';
 import { CreateTemplateEarlyBookingDto } from './dto/create-template-early-booking.dto';
@@ -12,7 +13,7 @@ import { Request } from 'express';
 export class TemplateEarlyBookingController {
     constructor(private readonly templateEarlyBookingService: TemplateEarlyBookingService) { }
 
-    private getHotelId(req: Request): number {
+    private getHotelId(req: AuthenticatedRequest): number {
         const hotelId = Number(req.headers['x-hotel-id']);
         if (!hotelId || isNaN(hotelId)) {
             throw new Error('Missing or invalid x-hotel-id header');
@@ -22,20 +23,20 @@ export class TemplateEarlyBookingController {
 
     @Get('early-bookings')
     findAllTemplateEarlyBookings(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Query() pageOptions: PageOptionsDto,
     ) {
         return this.templateEarlyBookingService.findAllTemplateEarlyBookings(this.getHotelId(req), pageOptions);
     }
 
     @Get('early-bookings/archived')
-    findArchivedTemplateEarlyBookings(@Req() req: Request) {
+    findArchivedTemplateEarlyBookings(@Req() req: AuthenticatedRequest) {
         return this.templateEarlyBookingService.findArchivedTemplateEarlyBookings(this.getHotelId(req));
     }
 
     @Post('early-bookings')
     createTemplateEarlyBooking(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Body() dto: CreateTemplateEarlyBookingDto,
     ) {
         return this.templateEarlyBookingService.createTemplateEarlyBooking(this.getHotelId(req), dto);
@@ -43,7 +44,7 @@ export class TemplateEarlyBookingController {
 
     @Patch('early-bookings/:id')
     updateTemplateEarlyBooking(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateTemplateEarlyBookingDto,
     ) {
@@ -51,12 +52,12 @@ export class TemplateEarlyBookingController {
     }
 
     @Delete('early-bookings/:id')
-    removeTemplateEarlyBooking(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    removeTemplateEarlyBooking(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
         return this.templateEarlyBookingService.removeTemplateEarlyBooking(this.getHotelId(req), id);
     }
 
     @Patch('early-bookings/:id/restore')
-    restoreTemplateEarlyBooking(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    restoreTemplateEarlyBooking(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
         return this.templateEarlyBookingService.restoreTemplateEarlyBooking(this.getHotelId(req), id);
     }
 }

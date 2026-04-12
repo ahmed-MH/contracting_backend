@@ -118,15 +118,18 @@ describe('AuthService', () => {
 
     describe('invite', () => {
         it('should throw BadRequestException if COMMERCIAL has no hotels', async () => {
-            await expect(service.invite({ email: 'test@test.com', role: UserRole.COMMERCIAL, hotelIds: [] })).rejects.toThrow(BadRequestException);
-            await expect(service.invite({ email: 'test@test.com', role: UserRole.COMMERCIAL })).rejects.toThrow(BadRequestException);
+            const dto1 = { email: 'test@test.com', role: UserRole.COMMERCIAL, hotelIds: [] };
+            const dto2 = { email: 'test@test.com', role: UserRole.COMMERCIAL };
+            await expect(service.invite(dto1, { tenantId: 1 })).rejects.toThrow(BadRequestException);
+            await expect(service.invite(dto2, { tenantId: 1 })).rejects.toThrow(BadRequestException);
         });
 
         it('should invite user and assign hotels for COMMERCIAL', async () => {
             const invitedUser = { id: 2, email: 'new@test.com' };
             mockUsersService.createInvitedUser.mockResolvedValue(invitedUser);
+            const dto = { email: 'new@test.com', role: UserRole.COMMERCIAL, hotelIds: [1] };
 
-            const result = await service.invite({ email: 'new@test.com', role: UserRole.COMMERCIAL, hotelIds: [1] });
+            const result = await service.invite(dto, { tenantId: 1 });
             
             expect(mockUsersService.createInvitedUser).toHaveBeenCalled();
             expect(mockUsersService.update).toHaveBeenCalledWith(2, { hotelIds: [1] });
@@ -138,7 +141,7 @@ describe('AuthService', () => {
             const invitedUser = { id: 3, email: 'admin@test.com' };
             mockUsersService.createInvitedUser.mockResolvedValue(invitedUser);
 
-            await service.invite({ email: 'admin@test.com', role: UserRole.ADMIN });
+            await service.invite({ email: 'admin@test.com', role: UserRole.ADMIN }, { tenantId: 1 });
             
             expect(mockUsersService.createInvitedUser).toHaveBeenCalled();
             expect(mockUsersService.update).not.toHaveBeenCalled(); // Admins don't get specific hotels assigned

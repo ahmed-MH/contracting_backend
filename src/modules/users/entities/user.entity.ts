@@ -1,8 +1,9 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany, ManyToMany, JoinTable, DeleteDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany, ManyToMany, JoinTable, DeleteDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { UserRole } from '../../../common/constants/enums';
 import { AuditLog } from './audit-log.entity';
 import { Hotel } from '../../hotel/entities/hotel.entity';
+import { Tenant } from '../../tenants/entities/tenant.entity';
 
 @Entity()
 export class User {
@@ -45,6 +46,13 @@ export class User {
     @ManyToMany(() => Hotel, (hotel) => hotel.users, { eager: false })
     @JoinTable({ name: 'user_hotels' })
     hotels: Hotel[];
+
+    @ManyToOne(() => Tenant, (tenant) => tenant.users, { nullable: true })
+    @JoinColumn({ name: 'tenantId' })
+    tenant: Tenant;
+
+    @Column({ nullable: true })
+    tenantId: number;
 
     @DeleteDateColumn()
     deletedAt?: Date;

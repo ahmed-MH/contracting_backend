@@ -31,10 +31,10 @@ export class SimulationService {
         private readonly supplementRepo: Repository<ContractSupplement>,
     ) { }
 
-    async calculate(dto: SimulationRequestDto): Promise<SimulationResponseDto> {
+    async calculate(hotelId: number, dto: SimulationRequestDto): Promise<SimulationResponseDto> {
         // 1. Load Contract with relevant relations
         const contract = await this.contractRepo.findOne({
-            where: { id: dto.contractId },
+            where: { id: dto.contractId, hotel: { id: hotelId } },
             relations: [
                 'periods',
                 'contractRooms',
@@ -43,7 +43,7 @@ export class SimulationService {
         });
 
         if (!contract) {
-            throw new NotFoundException(`Contract #${dto.contractId} not found`);
+            throw new NotFoundException(`Contract #${dto.contractId} not found in hotel #${hotelId}`);
         }
 
         if (contract.status !== ContractStatus.ACTIVE) {

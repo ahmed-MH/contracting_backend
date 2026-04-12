@@ -41,11 +41,11 @@ export class PricingService {
 
     // ─── Initialize a Contract Line (Period × Room intersection) ──────
 
-    async initContractLine(dto: InitContractLineDto): Promise<ContractLine> {
+    async initContractLine(hotelId: number, dto: InitContractLineDto): Promise<ContractLine> {
         // Idempotent: return existing line if already created
         const existing = await this.lineRepo.findOne({
             where: {
-                period: { id: dto.periodId },
+                period: { id: dto.periodId, contract: { hotelId } },
                 contractRoom: { id: dto.contractRoomId },
             },
             relations: ['period', 'contractRoom'],
@@ -56,11 +56,11 @@ export class PricingService {
         }
 
         const period = await this.periodRepo.findOne({
-            where: { id: dto.periodId },
+            where: { id: dto.periodId, contract: { hotelId } },
             relations: ['contract'],
         });
         if (!period) {
-            throw new NotFoundException(`Period #${dto.periodId} not found`);
+            throw new NotFoundException(`Period #${dto.periodId} not found or does not belong to hotel #${hotelId}`);
         }
 
         // Verify the period belongs to the correct contract
@@ -71,11 +71,11 @@ export class PricingService {
         }
 
         const contractRoom = await this.contractRoomRepo.findOne({
-            where: { id: dto.contractRoomId },
+            where: { id: dto.contractRoomId, contract: { hotelId } },
             relations: ['contract'],
         });
         if (!contractRoom) {
-            throw new NotFoundException(`ContractRoom #${dto.contractRoomId} not found`);
+            throw new NotFoundException(`ContractRoom #${dto.contractRoomId} not found or does not belong to hotel #${hotelId}`);
         }
 
         if (contractRoom.contract.id !== dto.contractId) {
@@ -90,17 +90,19 @@ export class PricingService {
 
     // ─── Set / Update a Price (upsert by line + arrangement) ──────────
 
-    async setPrice(dto: SetPriceDto): Promise<Price> {
-        const line = await this.lineRepo.findOne({ where: { id: dto.contractLineId } });
+    async setPrice(hotelId: number, dto: SetPriceDto): Promise<Price> {
+        const line = await this.lineRepo.findOne({
+            where: { id: dto.contractLineId, period: { contract: { hotelId } } }
+        });
         if (!line) {
-            throw new NotFoundException(`ContractLine #${dto.contractLineId} not found`);
+            throw new NotFoundException(`ContractLine #${dto.contractLineId} not found or does not belong to hotel #${hotelId}`);
         }
 
         const arrangement = await this.arrangementRepo.findOne({
-            where: { id: dto.arrangementId },
+            where: { id: dto.arrangementId, hotelId },
         });
         if (!arrangement) {
-            throw new NotFoundException(`Arrangement #${dto.arrangementId} not found`);
+            throw new NotFoundException(`Arrangement #${dto.arrangementId} not found in hotel #${hotelId}`);
         }
 
         // Upsert: update existing or create new
@@ -129,14 +131,14 @@ export class PricingService {
 
     // ─── Manage Promotions on a Line (full replacement) ───────────────
 
-    async setLinePromotions(dto: ManageLinePromosDto): Promise<ContractLine> {
+    async setLinePromotions(hotelId: number, dto: ManageLinePromosDto): Promise<ContractLine> {
         const line = await this.lineRepo.findOne({
-            where: { id: dto.contractLineId },
+            where: { id: dto.contractLineId, period: { contract: { hotelId } } },
             relations: ['promotions'],
         });
 
         if (!line) {
-            throw new NotFoundException(`ContractLine #${dto.contractLineId} not found`);
+            throw new NotFoundException(`ContractLine #${dto.contractLineId} not found or does not belong to hotel #${hotelId}`);
         }
 
         const promotions = await this.promotionRepo.find({
@@ -156,13 +158,13 @@ export class PricingService {
 
     // ─── Set / Update Allotment (now stored as a column on ContractLine) ─────
 
-    async setAllotment(dto: SetAllotmentDto): Promise<ContractLine> {
+    async setAllotment(hotelId: number, dto: SetAllotmentDto): Promise<ContractLine> {
         const line = await this.lineRepo.findOne({
-            where: { id: dto.contractLineId },
+            where: { id: dto.contractLineId, period: { contract: { hotelId } } },
         });
 
         if (!line) {
-            throw new NotFoundException(`ContractLine #${dto.contractLineId} not found`);
+            throw new NotFoundException(`ContractLine #${dto.contractLineId} not found or does not belong to hotel #${hotelId}`);
         }
 
         line.allotment = dto.quantity;
@@ -171,10 +173,10 @@ export class PricingService {
 
     // ─── Get full pricing matrix for a contract ───────────────────────
 
-    async getMatrix(contractId: number): Promise<ContractLine[]> {
+    async getMatrix(hotelId: number, contractId: number): Promise<ContractLine[]> {
         const lines = await this.lineRepo.find({
             where: {
-                period: { contract: { id: contractId } },
+                period: { contract: { id: contractId, hotelId } },
             },
             relations: [
                 'period',

@@ -74,7 +74,7 @@ describe('HotelService - Tests Unitaires 🏢', () => {
             mockHotelRepo.save.mockResolvedValue(mockHotel);
 
             // Exécution
-            const result = await service.createHotel(createDto);
+            const result = await service.createHotel(createDto, { tenantId: 1 });
 
             // Assertions
             console.log(`[HÔTEL] Création réussie : ${result.name} ✅`);
@@ -95,7 +95,7 @@ describe('HotelService - Tests Unitaires 🏢', () => {
 
         it('devrait filtrer les hôtels pour un utilisateur spécifique (Commercial)', async () => {
             mockHotelRepo.find.mockResolvedValue([mockHotel]);
-            const user = { id: 42, role: UserRole.COMMERCIAL };
+            const user = { id: 42, role: UserRole.COMMERCIAL, tenantId: null };
 
             const result = await service.findAllHotels(user);
 
@@ -109,7 +109,7 @@ describe('HotelService - Tests Unitaires 🏢', () => {
 
         it('devrait retourner tous les hôtels pour un utilisateur (Admin)', async () => {
             mockHotelRepo.find.mockResolvedValue([mockHotel]);
-            const user = { id: 1, role: UserRole.ADMIN };
+            const user = { id: 1, role: UserRole.ADMIN, tenantId: 1 };
 
             const result = await service.findAllHotels(user);
 

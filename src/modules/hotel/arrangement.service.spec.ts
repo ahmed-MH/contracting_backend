@@ -44,14 +44,14 @@ describe('ArrangementService', () => {
             mockArrangementRepo.create.mockReturnValue(mockArrangement);
             mockArrangementRepo.save.mockResolvedValue(mockArrangement);
 
-            const result = await service.createArrangement(mockHotelId, { name: 'All Inclusive' });
+            const result = await service.createArrangement(mockHotelId, { name: 'All Inclusive', code: 'ALL' });
             expect(result).toEqual(mockArrangement);
             expect(mockHotelRepo.findOne).toHaveBeenCalledWith({ where: { id: mockHotelId } });
         });
 
         it('should throw NotFoundException if hotel not found', async () => {
             mockHotelRepo.findOne.mockResolvedValue(null);
-            await expect(service.createArrangement(mockHotelId, { name: 'All Inclusive' })).rejects.toThrow(NotFoundException);
+            await expect(service.createArrangement(mockHotelId, { name: 'All Inclusive', code: 'ALL' })).rejects.toThrow(NotFoundException);
         });
     });
 

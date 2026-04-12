@@ -1,24 +1,26 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Request } from 'express';
 import { UserRole } from '../constants/enums';
+import { SUPERVISOR_RESTRICTED_ROUTE_PREFIXES } from '../constants/supervisor-restricted-routes';
 import { UsersService } from '../../modules/users/users.service';
+import { HotelService } from '../../modules/hotel/hotel.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { SKIP_HOTEL_CHECK_KEY } from '../decorators/skip-hotel-check.decorator';
 
-interface RequestUser {
-    id: number;
-    email: string;
-    role: UserRole;
-    hotelIds: number[];
-}
+import { AuthenticatedRequest } from '../interfaces/request.interface';
 
 @Injectable()
 export class HotelAccessGuard implements CanActivate {
     constructor(
         private readonly usersService: UsersService,
+        private readonly hotelService: HotelService,
         private readonly reflector: Reflector,
     ) { }
+
+    private isSupervisorRestrictedRoute(request: AuthenticatedRequest): boolean {
+        const pathname = (request.originalUrl ?? request.url ?? '').split('?')[0];
+        return SUPERVISOR_RESTRICTED_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+    }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         // Skip for @Public() routes
@@ -30,7 +32,18 @@ export class HotelAccessGuard implements CanActivate {
             return true;
         }
 
-        // Skip for @SkipHotelCheck() routes (e.g. /users/me, /users/me/hotels)
+        const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+        const jwtUser = request.user;
+
+        if (!jwtUser) {
+            return false;
+        }
+
+        if (jwtUser.role === UserRole.SUPERVISOR && this.isSupervisorRestrictedRoute(request)) {
+            throw new ForbiddenException('Supervisors cannot access tenant operational resources.');
+        }
+
+        // Skip for @SkipHotelCheck() routes after enforcing supervisor resource boundaries
         const skipHotelCheck = this.reflector.getAllAndOverride<boolean>(SKIP_HOTEL_CHECK_KEY, [
             context.getHandler(),
             context.getClass(),
@@ -39,23 +52,15 @@ export class HotelAccessGuard implements CanActivate {
             return true;
         }
 
-        const request = context.switchToHttp().getRequest<Request>();
-        const jwtUser = request.user as RequestUser | undefined;
-
-        // Should not happen if JwtAuthGuard is applied first, but safety net
-        if (!jwtUser) {
-            return false;
-        }
-
-        // Admins bypass all hotel checks
-        if (jwtUser.role === UserRole.ADMIN) {
+        // Rule A: Supervisors bypass all hotel checks
+        if (jwtUser.role === UserRole.SUPERVISOR) {
             return true;
         }
 
-        // For non-admin users, x-hotel-id is MANDATORY
+        // For non-supervisor users, x-hotel-id is MANDATORY
         const hotelIdHeader = request.headers['x-hotel-id'] as string | undefined;
         if (!hotelIdHeader) {
-            throw new ForbiddenException('Missing x-hotel-id header. Non-admin users must specify a hotel context.');
+            throw new ForbiddenException('Missing x-hotel-id header. Admins and Commercials must specify a hotel context.');
         }
 
         const requiredHotelId = parseInt(hotelIdHeader, 10);
@@ -63,13 +68,26 @@ export class HotelAccessGuard implements CanActivate {
             throw new ForbiddenException('Invalid x-hotel-id header format');
         }
 
-        // Fetch fresh data from DB to avoid stale JWT payload
+        // Fetch fresh data from DB
         const dbUser = await this.usersService.findById(jwtUser.id);
         if (!dbUser) {
             throw new ForbiddenException('User no longer exists');
         }
 
-        // Check if the user is assigned to the requested hotel
+        // Rule B: Admins bypass assigned relations but must match the tenant
+        if (jwtUser.role === UserRole.ADMIN) {
+            if (!dbUser.tenantId) {
+                throw new ForbiddenException('Admin has no tenant assigned.');
+            }
+
+            const hotel = await this.hotelService.findById(requiredHotelId);
+            if (!hotel || hotel.tenantId !== dbUser.tenantId) {
+                throw new ForbiddenException(`Access denied to hotel #${requiredHotelId} outside your tenant bounds.`);
+            }
+            return true;
+        }
+
+        // Rule C: Commercials & Agents must be explicitly assigned to the hotel
         const hasAccess = dbUser.hotels?.some(h => h.id === requiredHotelId);
         if (!hasAccess) {
             throw new ForbiddenException(`Access denied to hotel #${requiredHotelId}`);

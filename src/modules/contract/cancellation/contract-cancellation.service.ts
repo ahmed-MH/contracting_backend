@@ -156,7 +156,13 @@ export class ContractCancellationService {
             templateCancellationRuleId: template.id,
         });
 
-        return this.ruleRepo.save(rule);
+        const savedRule = await this.ruleRepo.save(rule);
+
+        const periods = await this.contractPeriodRepo.find({ where: { contract: { id: contractId } } });
+        const periodJunctions = periods.map(period => this.periodRepo.create({ contractCancellationRule: savedRule, period }));
+        await this.periodRepo.save(periodJunctions);
+
+        return savedRule;
     }
 
     // ─── DELETE ───────────────────────────────────────────────────────

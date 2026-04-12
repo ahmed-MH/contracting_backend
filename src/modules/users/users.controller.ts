@@ -1,16 +1,12 @@
+import { AuthenticatedRequest } from '../../common/interfaces/request.interface';
 import { Controller, Get, Patch, Delete, Body, Param, ParseIntPipe, Req } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/constants/enums';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SkipHotelCheck } from '../../common/decorators/skip-hotel-check.decorator';
-import { Request } from 'express';
-
-interface RequestUser {
-    id: number;
-    email: string;
-    role: string;
-}
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../common/interfaces/request.interface';
 
 @Controller('users')
 @Roles(UserRole.ADMIN)
@@ -22,14 +18,14 @@ export class UsersController {
 
     @Get('me')
     @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
-    getMe(@Req() req: Request) {
+    getMe(@Req() req: AuthenticatedRequest) {
         const user = req.user as RequestUser;
         return this.usersService.findById(user.id);
     }
 
     @Get('me/hotels')
     @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
-    async getMyHotels(@Req() req: Request) {
+    async getMyHotels(@Req() req: AuthenticatedRequest) {
         const user = req.user as RequestUser;
         return await this.usersService.findAssignedHotels(user.id);
     }
@@ -37,8 +33,8 @@ export class UsersController {
     // ─── Admin-Only User Management ──────────────────────────────
 
     @Get()
-    findAll() {
-        return this.usersService.findAll();
+    findAll(@CurrentUser() user: RequestUser) {
+        return this.usersService.findAll(user);
     }
 
     @Patch(':id')

@@ -83,8 +83,14 @@ export class ContractMonoparentalRuleService {
             templateId: template.id,
             contract,
         });
+        
+        const savedRule = await this.ruleRepo.save(rule);
 
-        return this.ruleRepo.save(rule);
+        const periods = await this.periodRepo.find({ where: { contract: { id: contractId } } });
+        const periodJunctions = periods.map(period => this.rulePeriodRepo.create({ contractMonoparentalRule: savedRule, period }));
+        await this.rulePeriodRepo.save(periodJunctions);
+
+        return savedRule;
     }
 
     // Update rule values and/or targeting

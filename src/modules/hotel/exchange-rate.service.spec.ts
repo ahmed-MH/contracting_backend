@@ -96,7 +96,7 @@ describe('ExchangeRateService', () => {
             mockExchangeRateRepo.findOneBy.mockResolvedValue(mockRate);
             mockExchangeRateRepo.save.mockResolvedValue({ ...mockRate, validUntil: null });
 
-            const result = await service.update(mockHotelId, mockId, { validUntil: null });
+            const result = await service.update(mockHotelId, mockId, { validUntil: null as any });
             expect(result.validUntil).toBeNull();
         });
 

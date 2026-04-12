@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
 import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Query, Req } from '@nestjs/common';
 import { TemplateReductionService } from './template-reduction.service';
 import { CreateTemplateReductionDto } from './dto/create-template-reduction.dto';
@@ -12,7 +13,7 @@ import { Request } from 'express';
 export class TemplateReductionController {
     constructor(private readonly templateReductionService: TemplateReductionService) { }
 
-    private getHotelId(req: Request): number {
+    private getHotelId(req: AuthenticatedRequest): number {
         const hotelId = Number(req.headers['x-hotel-id']);
         if (!hotelId || isNaN(hotelId)) {
             throw new Error('Missing or invalid x-hotel-id header');
@@ -22,20 +23,20 @@ export class TemplateReductionController {
 
     @Get('reductions')
     findAllTemplateReductions(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Query() pageOptions: PageOptionsDto,
     ) {
         return this.templateReductionService.findAllTemplateReductions(this.getHotelId(req), pageOptions);
     }
 
     @Get('reductions/archived')
-    findArchivedTemplateReductions(@Req() req: Request) {
+    findArchivedTemplateReductions(@Req() req: AuthenticatedRequest) {
         return this.templateReductionService.findArchivedTemplateReductions(this.getHotelId(req));
     }
 
     @Post('reductions')
     createTemplateReduction(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Body() dto: CreateTemplateReductionDto,
     ) {
         return this.templateReductionService.createTemplateReduction(this.getHotelId(req), dto);
@@ -43,7 +44,7 @@ export class TemplateReductionController {
 
     @Patch('reductions/:id')
     updateTemplateReduction(
-        @Req() req: Request,
+        @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateTemplateReductionDto,
     ) {
@@ -51,12 +52,12 @@ export class TemplateReductionController {
     }
 
     @Delete('reductions/:id')
-    removeTemplateReduction(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    removeTemplateReduction(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
         return this.templateReductionService.removeTemplateReduction(this.getHotelId(req), id);
     }
 
     @Patch('reductions/:id/restore')
-    restoreTemplateReduction(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    restoreTemplateReduction(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
         return this.templateReductionService.restoreTemplateReduction(this.getHotelId(req), id);
     }
 }

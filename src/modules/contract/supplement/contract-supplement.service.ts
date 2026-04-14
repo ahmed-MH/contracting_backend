@@ -35,10 +35,66 @@ export class ContractSupplementService {
         private readonly templateRepo: Repository<TemplateSupplement>,
     ) { }
 
+    private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
+        const contract = await this.contractRepo.findOne({
+            where: { id: contractId, hotelId },
+        });
+        if (!contract) {
+            throw new NotFoundException(`Contract #${contractId} not found in hotel #${hotelId}`);
+        }
+        return contract;
+    }
+
+    private async findSupplementOrThrow(
+        hotelId: number,
+        contractId: number,
+        id: number,
+        relations: string[] = [],
+    ): Promise<ContractSupplement> {
+        const supplement = await this.supplementRepo.findOne({
+            where: { id, contract: { id: contractId, hotelId } },
+            relations,
+        });
+        if (!supplement) {
+            throw new NotFoundException(`ContractSupplement #${id} not found in contract #${contractId}`);
+        }
+        return supplement;
+    }
+
+    private assertAllFound(resource: string, requestedIds: number[], foundCount: number, contractId: number): void {
+        const uniqueIds = [...new Set(requestedIds)];
+        if (foundCount !== uniqueIds.length) {
+            throw new NotFoundException(`${resource} not found in contract #${contractId}`);
+        }
+    }
+
+    private async findContractRoomsOrThrow(hotelId: number, contractId: number, ids: number[]): Promise<ContractRoom[]> {
+        const uniqueIds = [...new Set(ids)];
+        if (uniqueIds.length === 0) return [];
+
+        const rooms = await this.contractRoomRepo.find({
+            where: { id: In(uniqueIds), contract: { id: contractId, hotelId } },
+        });
+        this.assertAllFound('ContractRoom', uniqueIds, rooms.length, contractId);
+        return rooms;
+    }
+
+    private async findPeriodsOrThrow(hotelId: number, contractId: number, ids: number[]): Promise<Period[]> {
+        const uniqueIds = [...new Set(ids)];
+        if (uniqueIds.length === 0) return [];
+
+        const periods = await this.periodRepo.find({
+            where: { id: In(uniqueIds), contract: { id: contractId, hotelId } },
+        });
+        this.assertAllFound('Period', uniqueIds, periods.length, contractId);
+        return periods;
+    }
+
     // Fetch all supplements for a given contract (with targeting relations)
-    async findByContract(contractId: number): Promise<ContractSupplement[]> {
+    async findByContract(hotelId: number, contractId: number): Promise<ContractSupplement[]> {
+        await this.findContractOrThrow(hotelId, contractId);
         return this.supplementRepo.find({
-            where: { contract: { id: contractId } },
+            where: { contract: { id: contractId, hotelId } },
             relations: [
                 'applicableContractRooms',
                 'applicableContractRooms.contractRoom',
@@ -53,21 +109,17 @@ export class ContractSupplementService {
     // Clone a TemplateSupplement into a ContractSupplement.
     // If the template has a specificDate, auto-assigns the matching contract period.
     async importFromTemplate(
+        hotelId: number,
         contractId: number,
         templateId: number,
     ): Promise<ContractSupplement> {
-        const contract = await this.contractRepo.findOne({
-            where: { id: contractId },
-        });
-        if (!contract) {
-            throw new NotFoundException(`Contract #${contractId} not found`);
-        }
+        const contract = await this.findContractOrThrow(hotelId, contractId);
 
         const template = await this.templateRepo.findOne({
-            where: { id: templateId },
+            where: { id: templateId, hotel: { id: hotelId } },
         });
         if (!template) {
-            throw new NotFoundException(`TemplateSupplement #${templateId} not found`);
+            throw new NotFoundException(`TemplateSupplement #${templateId} not found in hotel #${hotelId}`);
         }
 
         // Clone template values — independent copy
@@ -93,7 +145,7 @@ export class ContractSupplementService {
             const specificMs = new Date(template.specificDate).getTime();
 
             const periods = await this.periodRepo.find({
-                where: { contract: { id: contractId } },
+                where: { contract: { id: contractId, hotelId } },
             });
 
             const matchingPeriod = periods.find((p) => {
@@ -113,7 +165,7 @@ export class ContractSupplementService {
         } else {
             // Default to all periods
             const periods = await this.periodRepo.find({
-                where: { contract: { id: contractId } },
+                where: { contract: { id: contractId, hotelId } },
             });
             const junctions = periods.map((period) =>
                 this.csPeriodRepo.create({
@@ -127,7 +179,7 @@ export class ContractSupplementService {
 
         // Return with relations loaded
         return this.supplementRepo.findOne({
-            where: { id: saved.id },
+            where: { id: saved.id, contract: { id: contractId, hotelId } },
             relations: [
                 'applicableContractRooms',
                 'applicableContractRooms.contractRoom',
@@ -141,18 +193,24 @@ export class ContractSupplementService {
 
     // Update supplement values and/or targeting
     async update(
+        hotelId: number,
+        contractId: number,
         id: number,
         dto: UpdateContractSupplementDto,
     ): Promise<ContractSupplement> {
-        const supplement = await this.supplementRepo.findOne({
-            where: { id },
-            relations: [
-                'applicableContractRooms',
-                'applicablePeriods',
-            ],
-        });
-        if (!supplement) {
-            throw new NotFoundException(`ContractSupplement #${id} not found`);
+        const supplement = await this.findSupplementOrThrow(hotelId, contractId, id, [
+            'applicableContractRooms',
+            'applicablePeriods',
+        ]);
+
+        if (dto.applicableContractRoomIds?.length) {
+            await this.findContractRoomsOrThrow(hotelId, contractId, dto.applicableContractRoomIds);
+        }
+        if (dto.applicablePeriods?.length) {
+            await this.findPeriodsOrThrow(hotelId, contractId, dto.applicablePeriods.map((p) => p.periodId));
+        }
+        if (dto.applicablePeriodIds?.length) {
+            await this.findPeriodsOrThrow(hotelId, contractId, dto.applicablePeriodIds);
         }
 
         // Update scalar fields
@@ -171,13 +229,13 @@ export class ContractSupplementService {
 
         // Update targeting — rooms (full replacement via junction entity)
         if (dto.applicableContractRoomIds !== undefined) {
+            const rooms = dto.applicableContractRoomIds.length > 0
+                ? await this.findContractRoomsOrThrow(hotelId, contractId, dto.applicableContractRoomIds)
+                : [];
             // Delete all existing room junctions for this supplement
             await this.csRoomRepo.delete({ contractSupplement: { id } });
 
             if (dto.applicableContractRoomIds.length > 0) {
-                const rooms = await this.contractRoomRepo.find({
-                    where: { id: In(dto.applicableContractRoomIds) },
-                });
                 const junctions = rooms.map((room) =>
                     this.csRoomRepo.create({ contractSupplement: supplement, contractRoom: room }),
                 );
@@ -196,17 +254,22 @@ export class ContractSupplementService {
         const legacyPeriodIds = dto.applicablePeriodIds;
 
         if (newPeriods !== undefined || legacyPeriodIds !== undefined) {
+            const periodMap = new Map<number, Period>();
+            let legacyPeriods: Period[] = [];
+
+            if (newPeriods && newPeriods.length > 0) {
+                const periodIds = newPeriods.map((p) => p.periodId);
+                const periods = await this.findPeriodsOrThrow(hotelId, contractId, periodIds);
+                periods.forEach((p) => periodMap.set(p.id, p));
+            } else if (legacyPeriodIds && legacyPeriodIds.length > 0) {
+                legacyPeriods = await this.findPeriodsOrThrow(hotelId, contractId, legacyPeriodIds);
+            }
+
             // Full replacement: remove all existing period junctions
             await this.csPeriodRepo.delete({ contractSupplement: { id } });
 
             if (newPeriods && newPeriods.length > 0) {
                 // New format: supports seasonal overrideValue per period
-                const periodIds = newPeriods.map((p) => p.periodId);
-                const periods = await this.periodRepo.find({
-                    where: { id: In(periodIds) },
-                });
-                const periodMap = new Map(periods.map((p) => [p.id, p]));
-
                 const junctions = newPeriods
                     .filter((p) => periodMap.has(p.periodId))
                     .map((p) =>
@@ -223,10 +286,7 @@ export class ContractSupplementService {
 
             } else if (legacyPeriodIds && legacyPeriodIds.length > 0) {
                 // Legacy format (from old modal): no override value
-                const periods = await this.periodRepo.find({
-                    where: { id: In(legacyPeriodIds) },
-                });
-                const junctions = periods.map((period) =>
+                const junctions = legacyPeriods.map((period) =>
                     this.csPeriodRepo.create({
                         contractSupplement: supplement,
                         period,
@@ -240,7 +300,7 @@ export class ContractSupplementService {
 
         // Reload with fresh relations
         return this.supplementRepo.findOne({
-            where: { id },
+            where: { id, contract: { id: contractId, hotelId } },
             relations: [
                 'applicableContractRooms',
                 'applicableContractRooms.contractRoom',
@@ -252,10 +312,8 @@ export class ContractSupplementService {
     }
 
     // Hard delete a contract supplement (junction rows cascade automatically)
-    async remove(id: number): Promise<void> {
-        const result = await this.supplementRepo.delete(id);
-        if (result.affected === 0) {
-            throw new NotFoundException(`ContractSupplement #${id} not found`);
-        }
+    async remove(hotelId: number, contractId: number, id: number): Promise<void> {
+        const supplement = await this.findSupplementOrThrow(hotelId, contractId, id);
+        await this.supplementRepo.remove(supplement);
     }
 }

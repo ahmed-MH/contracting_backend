@@ -7,6 +7,7 @@ import { ContractCancellationRuleRoom } from './entities/contract-cancellation-r
 import { TemplateCancellationRule } from '../../catalog/cancellation/entities/template-cancellation-rule.entity';
 import { Period } from '../core/entities/period.entity';
 import { ContractRoom } from '../core/entities/contract-room.entity';
+import { Contract } from '../core/entities/contract.entity';
 import {
     CreateContractCancellationRuleDto,
     UpdateContractCancellationRuleDto,
@@ -33,12 +34,69 @@ export class ContractCancellationService {
 
         @InjectRepository(ContractRoom)
         private readonly contractRoomRepo: Repository<ContractRoom>,
+
+        @InjectRepository(Contract)
+        private readonly contractRepo: Repository<Contract>,
     ) { }
 
+    private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
+        const contract = await this.contractRepo.findOne({ where: { id: contractId, hotelId } });
+        if (!contract) {
+            throw new NotFoundException(`Contract #${contractId} not found in hotel #${hotelId}`);
+        }
+        return contract;
+    }
+
+    private async findRuleOrThrow(
+        hotelId: number,
+        contractId: number,
+        id: number,
+        relations: string[] = [],
+    ): Promise<ContractCancellationRule> {
+        const rule = await this.ruleRepo.findOne({
+            where: { id, contract: { id: contractId, hotelId } },
+            relations,
+        });
+        if (!rule) {
+            throw new NotFoundException(`Cancellation rule #${id} not found in contract #${contractId}`);
+        }
+        return rule;
+    }
+
+    private assertAllFound(resource: string, requestedIds: number[], foundCount: number, contractId: number): void {
+        const uniqueIds = [...new Set(requestedIds)];
+        if (foundCount !== uniqueIds.length) {
+            throw new NotFoundException(`${resource} not found in contract #${contractId}`);
+        }
+    }
+
+    private async findContractRoomsOrThrow(hotelId: number, contractId: number, ids: number[]): Promise<ContractRoom[]> {
+        const uniqueIds = [...new Set(ids)];
+        if (uniqueIds.length === 0) return [];
+
+        const rooms = await this.contractRoomRepo.find({
+            where: { id: In(uniqueIds), contract: { id: contractId, hotelId } },
+        });
+        this.assertAllFound('ContractRoom', uniqueIds, rooms.length, contractId);
+        return rooms;
+    }
+
+    private async findPeriodsOrThrow(hotelId: number, contractId: number, ids: number[]): Promise<Period[]> {
+        const uniqueIds = [...new Set(ids)];
+        if (uniqueIds.length === 0) return [];
+
+        const periods = await this.contractPeriodRepo.find({
+            where: { id: In(uniqueIds), contract: { id: contractId, hotelId } },
+        });
+        this.assertAllFound('Period', uniqueIds, periods.length, contractId);
+        return periods;
+    }
+
     // ─── READ ─────────────────────────────────────────────────────────
-    async findAllByContract(contractId: number): Promise<ContractCancellationRule[]> {
+    async findAllByContract(hotelId: number, contractId: number): Promise<ContractCancellationRule[]> {
+        await this.findContractOrThrow(hotelId, contractId);
         return this.ruleRepo.find({
-            where: { contractId },
+            where: { contract: { id: contractId, hotelId } },
             relations: [
                 'applicablePeriods',
                 'applicablePeriods.period',
@@ -51,14 +109,20 @@ export class ContractCancellationService {
     }
 
     // ─── CREATE ───────────────────────────────────────────────────────
-    async create(contractId: number, dto: CreateContractCancellationRuleDto): Promise<ContractCancellationRule> {
+    async create(hotelId: number, contractId: number, dto: CreateContractCancellationRuleDto): Promise<ContractCancellationRule> {
         const { contractRoomIds, periodIds, ...ruleData } = dto;
+        await this.findContractOrThrow(hotelId, contractId);
+        const rooms = contractRoomIds?.length
+            ? await this.findContractRoomsOrThrow(hotelId, contractId, contractRoomIds)
+            : [];
+        const periods = periodIds?.length
+            ? await this.findPeriodsOrThrow(hotelId, contractId, periodIds)
+            : [];
 
         const rule = this.ruleRepo.create({ ...ruleData, contractId });
         const savedRule = await this.ruleRepo.save(rule);
 
         if (contractRoomIds?.length > 0) {
-            const rooms = await this.contractRoomRepo.find({ where: { id: In(contractRoomIds) } });
             const roomJunctions = rooms.map(room =>
                 this.roomRepo.create({ contractCancellationRule: savedRule, contractRoom: room }),
             );
@@ -66,7 +130,6 @@ export class ContractCancellationService {
         }
 
         if (periodIds && periodIds.length > 0) {
-            const periods = await this.contractPeriodRepo.find({ where: { id: In(periodIds) } });
             const periodJunctions = periods.map(period =>
                 this.periodRepo.create({ contractCancellationRule: savedRule, period }),
             );
@@ -77,26 +140,34 @@ export class ContractCancellationService {
     }
 
     // ─── UPDATE ───────────────────────────────────────────────────────
-    async update(id: number, dto: UpdateContractCancellationRuleDto): Promise<ContractCancellationRule> {
-        const rule = await this.ruleRepo.findOne({
-            where: { id },
-            relations: ['applicablePeriods', 'applicableRooms'],
-        });
-        if (!rule) throw new NotFoundException(`Cancellation rule #${id} not found`);
+    async update(hotelId: number, contractId: number, id: number, dto: UpdateContractCancellationRuleDto): Promise<ContractCancellationRule> {
+        const rule = await this.findRuleOrThrow(hotelId, contractId, id, [
+            'applicablePeriods',
+            'applicableRooms',
+        ]);
 
         // ── Scalar fields ──────────────────────────────────────────────
+        if (dto.applicablePeriods?.length) {
+            await this.findPeriodsOrThrow(hotelId, contractId, dto.applicablePeriods.map(ap => Number(ap.periodId)));
+        }
+        if (dto.contractRoomIds?.length) {
+            await this.findContractRoomsOrThrow(hotelId, contractId, dto.contractRoomIds);
+        }
+
         const { applicablePeriods, contractRoomIds, ...ruleData } = dto;
         Object.assign(rule, ruleData);
         await this.ruleRepo.save(rule);
 
         // ── Periods — Drop & Replace (mirror of ReductionService) ──────
         if (applicablePeriods !== undefined) {
+            const scopedPeriods = applicablePeriods.length > 0
+                ? await this.findPeriodsOrThrow(hotelId, contractId, applicablePeriods.map(ap => Number(ap.periodId)))
+                : [];
             // Hard delete via injected repository — resolves FK correctly
             await this.periodRepo.delete({ contractCancellationRule: { id } });
 
             if (applicablePeriods.length > 0) {
-                const periodIds = applicablePeriods.map(ap => Number(ap.periodId));
-                const periods = await this.contractPeriodRepo.find({ where: { id: In(periodIds) } });
+                const periods = scopedPeriods;
 
                 const junctions = applicablePeriods.map(ap => {
                     const period = periods.find(p => p.id === Number(ap.periodId));
@@ -116,10 +187,13 @@ export class ContractCancellationService {
 
         // ── Rooms — Drop & Replace ─────────────────────────────────────
         if (contractRoomIds !== undefined) {
+            const scopedRooms = contractRoomIds.length > 0
+                ? await this.findContractRoomsOrThrow(hotelId, contractId, contractRoomIds)
+                : [];
             await this.roomRepo.delete({ contractCancellationRule: { id } });
 
             if (contractRoomIds.length > 0) {
-                const rooms = await this.contractRoomRepo.find({ where: { id: In(contractRoomIds) } });
+                const rooms = scopedRooms;
                 const junctions = rooms.map(room =>
                     this.roomRepo.create({ contractCancellationRule: rule, contractRoom: room }),
                 );
@@ -129,7 +203,7 @@ export class ContractCancellationService {
 
         // ── Reload with fresh relations ────────────────────────────────
         return this.ruleRepo.findOne({
-            where: { id },
+            where: { id, contract: { id: contractId, hotelId } },
             relations: [
                 'applicablePeriods',
                 'applicablePeriods.period',
@@ -141,9 +215,11 @@ export class ContractCancellationService {
     }
 
     // ─── IMPORT ───────────────────────────────────────────────────────
-    async importFromTemplate(contractId: number, dto: ImportCancellationRuleDto): Promise<ContractCancellationRule> {
-        const template = await this.templateRepo.findOne({ where: { id: dto.templateId } });
-        if (!template) throw new NotFoundException('Template not found');
+    async importFromTemplate(hotelId: number, contractId: number, dto: ImportCancellationRuleDto): Promise<ContractCancellationRule> {
+        await this.findContractOrThrow(hotelId, contractId);
+
+        const template = await this.templateRepo.findOne({ where: { id: dto.templateId, hotelId } });
+        if (!template) throw new NotFoundException(`TemplateCancellationRule #${dto.templateId} not found in hotel #${hotelId}`);
 
         const rule = this.ruleRepo.create({
             name: template.name,
@@ -158,7 +234,7 @@ export class ContractCancellationService {
 
         const savedRule = await this.ruleRepo.save(rule);
 
-        const periods = await this.contractPeriodRepo.find({ where: { contract: { id: contractId } } });
+        const periods = await this.contractPeriodRepo.find({ where: { contract: { id: contractId, hotelId } } });
         const periodJunctions = periods.map(period => this.periodRepo.create({ contractCancellationRule: savedRule, period }));
         await this.periodRepo.save(periodJunctions);
 
@@ -166,10 +242,8 @@ export class ContractCancellationService {
     }
 
     // ─── DELETE ───────────────────────────────────────────────────────
-    async delete(id: number): Promise<void> {
-        const result = await this.ruleRepo.delete(id);
-        if (result.affected === 0) {
-            throw new NotFoundException(`Cancellation rule #${id} not found`);
-        }
+    async delete(hotelId: number, contractId: number, id: number): Promise<void> {
+        const rule = await this.findRuleOrThrow(hotelId, contractId, id);
+        await this.ruleRepo.remove(rule);
     }
 }

@@ -1,6 +1,5 @@
 import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
 import { Controller, Get, Post, Body, Patch, Param, Delete, Req, ParseIntPipe } from '@nestjs/common';
-import { Request } from 'express';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/enums';
 import { ContractEarlyBookingService } from './contract-early-booking.service';
@@ -21,8 +20,11 @@ export class ContractEarlyBookingController {
     }
 
     @Get(':contractId/early-bookings')
-    findByContract(@Param('contractId', ParseIntPipe) contractId: number) {
-        return this.contractEarlyBookingService.findByContract(contractId);
+    findByContract(
+        @Req() req: AuthenticatedRequest,
+        @Param('contractId', ParseIntPipe) contractId: number,
+    ) {
+        return this.contractEarlyBookingService.findByContract(this.getHotelId(req), contractId);
     }
 
     @Post(':contractId/early-bookings/import')
@@ -32,22 +34,26 @@ export class ContractEarlyBookingController {
         @Body() dto: ImportEarlyBookingDto,
     ) {
         return this.contractEarlyBookingService.importFromTemplate(
+            this.getHotelId(req),
             contractId,
             dto.templateId,
-            this.getHotelId(req),
         );
     }
 
     @Patch('early-bookings/:id')
     update(
+        @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateContractEarlyBookingDto,
     ) {
-        return this.contractEarlyBookingService.update(id, dto);
+        return this.contractEarlyBookingService.update(this.getHotelId(req), id, dto);
     }
 
     @Delete('early-bookings/:id')
-    remove(@Param('id', ParseIntPipe) id: number) {
-        return this.contractEarlyBookingService.remove(id);
+    remove(
+        @Req() req: AuthenticatedRequest,
+        @Param('id', ParseIntPipe) id: number,
+    ) {
+        return this.contractEarlyBookingService.remove(this.getHotelId(req), id);
     }
 }

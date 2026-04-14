@@ -11,6 +11,7 @@ import { Arrangement } from '../../hotel/entities/arrangement.entity';
 import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { ContractStatus } from '../../../common/constants/enums';
+import { ContractLine } from './entities/contract-line.entity';
 
 describe('ContractService', () => {
     let service: ContractService;
@@ -63,6 +64,14 @@ describe('ContractService', () => {
     };
 
     const mockHotelId = 1;
+    const setupActivationRepositories = (lines: any[] = []) => {
+        mockDataSource.getRepository.mockImplementation((entity) => {
+            if (entity === ContractLine) {
+                return { find: jest.fn().mockResolvedValue(lines), delete: jest.fn() };
+            }
+            return { find: jest.fn().mockResolvedValue([]), delete: jest.fn(), remove: jest.fn() };
+        });
+    };
 
     beforeEach(async () => {
         const module: TestingModule = await Test.createTestingModule({
@@ -81,6 +90,10 @@ describe('ContractService', () => {
 
         service = module.get<ContractService>(ContractService);
         jest.clearAllMocks();
+        mockDataSource.getRepository.mockReturnValue({
+            delete: jest.fn(),
+            find: jest.fn().mockResolvedValue([]),
+        });
     });
 
     describe('createContract', () => {
@@ -146,7 +159,7 @@ describe('ContractService', () => {
 
     describe('updateContract', () => {
         it('should update scalar fields and affiliates', async () => {
-            const dto = { name: 'Updated', status: ContractStatus.ACTIVE, affiliateIds: [2] } as any;
+            const dto = { name: 'Updated', status: ContractStatus.DRAFT, affiliateIds: [2] } as any;
             const mockContract = { id: 1, affiliates: [] };
             repos.contract.findOne.mockResolvedValue(mockContract);
             repos.affiliate.findOne.mockResolvedValue({ id: 2 });
@@ -173,6 +186,147 @@ describe('ContractService', () => {
         it('should throw NotFoundException if contract not found', async () => {
             repos.contract.findOne.mockResolvedValue(null);
             await expect(service.updateContract(mockHotelId, 1, {} as any)).rejects.toThrow(NotFoundException);
+        });
+    });
+
+    describe('activation validation', () => {
+        const validContract = {
+            id: 1,
+            name: 'Summer',
+            startDate: new Date('2025-01-01'),
+            endDate: new Date('2025-01-31'),
+            status: ContractStatus.DRAFT,
+            currency: 'EUR',
+            baseArrangementId: 1,
+            affiliates: [{ id: 1 }],
+        };
+        const validPeriod = {
+            id: 10,
+            name: 'January',
+            startDate: new Date('2025-01-01'),
+            endDate: new Date('2025-01-31'),
+        };
+        const validRoom = {
+            id: 20,
+            roomType: { id: 30, name: 'Double Room', hotelId: mockHotelId },
+        };
+        const validArrangement = { id: 1, name: 'HB', hotelId: mockHotelId };
+        const validLine = {
+            id: 40,
+            period: validPeriod,
+            contractRoom: validRoom,
+            isContracted: true,
+            prices: [{ id: 50, amount: 100, arrangement: validArrangement }],
+        };
+
+        const expectActivationFailureCode = async (promise: Promise<any>, code: string) => {
+            try {
+                await promise;
+                throw new Error('Expected activation to fail');
+            } catch (error: any) {
+                expect(error).toBeInstanceOf(BadRequestException);
+                expect(error.getResponse().validation.errors).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ code })]),
+                );
+            }
+        };
+
+        it('should block activation with no periods', async () => {
+            setupActivationRepositories();
+            repos.contract.findOne.mockResolvedValue({ ...validContract });
+            repos.period.find.mockResolvedValue([]);
+            repos.contractRoom.find.mockResolvedValue([validRoom]);
+            repos.arrangement.findOne.mockResolvedValue(validArrangement);
+
+            await expectActivationFailureCode(
+                service.updateContract(mockHotelId, 1, { status: ContractStatus.ACTIVE } as any),
+                'MISSING_PERIODS',
+            );
+            expect(repos.contract.save).not.toHaveBeenCalled();
+        });
+
+        it('should block activation with no rooms', async () => {
+            setupActivationRepositories();
+            repos.contract.findOne.mockResolvedValue({ ...validContract });
+            repos.period.find.mockResolvedValue([validPeriod]);
+            repos.contractRoom.find.mockResolvedValue([]);
+            repos.arrangement.findOne.mockResolvedValue(validArrangement);
+
+            await expectActivationFailureCode(
+                service.updateContract(mockHotelId, 1, { status: ContractStatus.ACTIVE } as any),
+                'MISSING_ROOMS',
+            );
+        });
+
+        it('should block activation with missing prices', async () => {
+            setupActivationRepositories([]);
+            repos.contract.findOne.mockResolvedValue({ ...validContract });
+            repos.period.find.mockResolvedValue([validPeriod]);
+            repos.contractRoom.find.mockResolvedValue([validRoom]);
+            repos.arrangement.findOne.mockResolvedValue(validArrangement);
+
+            await expectActivationFailureCode(
+                service.updateContract(mockHotelId, 1, { status: ContractStatus.ACTIVE } as any),
+                'MISSING_RATE',
+            );
+        });
+
+        it('should block activation with uncovered date gaps', async () => {
+            setupActivationRepositories([validLine]);
+            repos.contract.findOne.mockResolvedValue({ ...validContract });
+            repos.period.find.mockResolvedValue([
+                { ...validPeriod, startDate: new Date('2025-01-10') },
+            ]);
+            repos.contractRoom.find.mockResolvedValue([validRoom]);
+            repos.arrangement.findOne.mockResolvedValue(validArrangement);
+
+            await expectActivationFailureCode(
+                service.updateContract(mockHotelId, 1, { status: ContractStatus.ACTIVE } as any),
+                'UNCOVERED_DATE_RANGE',
+            );
+        });
+
+        it('should activate when validation passes', async () => {
+            setupActivationRepositories([validLine]);
+            const contract = { ...validContract };
+            repos.contract.findOne.mockResolvedValue(contract);
+            repos.period.find.mockResolvedValue([validPeriod]);
+            repos.contractRoom.find.mockResolvedValue([validRoom]);
+            repos.arrangement.findOne.mockResolvedValue(validArrangement);
+            repos.contract.save.mockImplementation(async (value) => value);
+
+            const result = await service.updateContract(mockHotelId, 1, { status: ContractStatus.ACTIVE } as any);
+
+            expect(result.status).toBe(ContractStatus.ACTIVE);
+            expect(repos.contract.save).toHaveBeenCalledWith(expect.objectContaining({ status: ContractStatus.ACTIVE }));
+        });
+
+        it('should return structured validation errors from activation check', async () => {
+            setupActivationRepositories();
+            repos.contract.findOne.mockResolvedValue({ ...validContract });
+            repos.period.find.mockResolvedValue([]);
+            repos.contractRoom.find.mockResolvedValue([]);
+            repos.arrangement.findOne.mockResolvedValue(validArrangement);
+
+            const result = await service.validateActivation(mockHotelId, 1);
+
+            expect(result.isValid).toBe(false);
+            expect(result.summary.missingPeriods).toBe(true);
+            expect(result.summary.missingRooms).toBe(true);
+            expect(result.errors).toEqual(expect.arrayContaining([
+                expect.objectContaining({ code: 'MISSING_PERIODS' }),
+                expect.objectContaining({ code: 'MISSING_ROOMS' }),
+            ]));
+        });
+
+        it('should preserve hotel scoping for activation check', async () => {
+            repos.contract.findOne.mockResolvedValue(null);
+
+            await expect(service.validateActivation(mockHotelId, 999)).rejects.toThrow(NotFoundException);
+            expect(repos.contract.findOne).toHaveBeenCalledWith({
+                where: { id: 999, hotelId: mockHotelId },
+                relations: ['affiliates', 'baseArrangement'],
+            });
         });
     });
 
@@ -256,6 +410,7 @@ describe('ContractService', () => {
         it('should upsert prices successfully', async () => {
             const contract = { id: 1, periods: [{ id: 1 }], contractRooms: [{ id: 1 }], currency: 'USD' };
             repos.contract.findOne.mockResolvedValue(contract);
+            repos.arrangement.find.mockResolvedValue([{ id: 1 }]);
             
             const dto = {
                 contractId: 1,
@@ -281,6 +436,7 @@ describe('ContractService', () => {
         it('should rollback transaction on error during price upsert', async () => {
             const contract = { id: 1, periods: [{ id: 1 }], contractRooms: [{ id: 1 }] };
             repos.contract.findOne.mockResolvedValue(contract);
+            repos.arrangement.find.mockResolvedValue([{ id: 1 }]);
 
             const dto = {
                 contractId: 1,
@@ -295,6 +451,22 @@ describe('ContractService', () => {
             mockQueryRunner.manager.getRepository.mockReturnValue(mockRepo);
             
             await expect(service.batchUpsertPrices(1, 1, dto)).rejects.toThrow('DB Error');
+        });
+
+        it('should reject prices for arrangements outside the active hotel', async () => {
+            const contract = { id: 1, periods: [{ id: 1 }], contractRooms: [{ id: 1 }], currency: 'USD' };
+            repos.contract.findOne.mockResolvedValue(contract);
+            repos.arrangement.find.mockResolvedValue([]);
+
+            const dto = {
+                contractId: 1,
+                cells: [
+                    { periodId: 1, contractRoomId: 1, isContracted: true, allotment: 10, prices: [{ arrangementId: 99, amount: 100 }] }
+                ]
+            } as any;
+
+            await expect(service.batchUpsertPrices(1, 1, dto)).rejects.toThrow(NotFoundException);
+            expect(mockDataSource.transaction).not.toHaveBeenCalled();
         });
     });
 });

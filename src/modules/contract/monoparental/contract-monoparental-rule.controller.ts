@@ -16,7 +16,6 @@ import { UpdateContractMonoparentalRuleDto } from './dto/update-contract-monopar
 
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/enums';
-import { Request } from 'express';
 
 @Controller('contracts/:contractId/monoparental-rules')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -34,8 +33,11 @@ export class ContractMonoparentalRuleController {
     }
 
     @Get()
-    findAll(@Param('contractId', ParseIntPipe) contractId: number) {
-        return this.monoparentalService.findByContract(contractId);
+    findAll(
+        @Req() req: AuthenticatedRequest,
+        @Param('contractId', ParseIntPipe) contractId: number,
+    ) {
+        return this.monoparentalService.findByContract(this.getHotelId(req), contractId);
     }
 
     @Post('import')
@@ -45,22 +47,28 @@ export class ContractMonoparentalRuleController {
         @Body() dto: ImportMonoparentalRuleDto,
     ) {
         return this.monoparentalService.importFromTemplate(
+            this.getHotelId(req),
             contractId,
             dto.templateId,
-            this.getHotelId(req),
         );
     }
 
     @Patch(':ruleId')
     update(
+        @Req() req: AuthenticatedRequest,
+        @Param('contractId', ParseIntPipe) contractId: number,
         @Param('ruleId', ParseIntPipe) ruleId: number,
         @Body() dto: UpdateContractMonoparentalRuleDto,
     ) {
-        return this.monoparentalService.update(ruleId, dto);
+        return this.monoparentalService.update(this.getHotelId(req), contractId, ruleId, dto);
     }
 
     @Delete(':ruleId')
-    remove(@Param('ruleId', ParseIntPipe) ruleId: number) {
-        return this.monoparentalService.remove(ruleId);
+    remove(
+        @Req() req: AuthenticatedRequest,
+        @Param('contractId', ParseIntPipe) contractId: number,
+        @Param('ruleId', ParseIntPipe) ruleId: number,
+    ) {
+        return this.monoparentalService.remove(this.getHotelId(req), contractId, ruleId);
     }
 }

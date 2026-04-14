@@ -37,9 +37,70 @@ export class ContractSpoService {
         private readonly arrangementRepo: Repository<Arrangement>,
     ) { }
 
-    async findAllByContract(contractId: number): Promise<ContractSpo[]> {
+    private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
+        const contract = await this.contractRepo.findOne({ where: { id: contractId, hotelId } });
+        if (!contract) throw new NotFoundException(`Contract #${contractId} not found in hotel #${hotelId}`);
+        return contract;
+    }
+
+    private async findSpoOrThrow(
+        hotelId: number,
+        contractId: number,
+        id: number,
+        relations: string[] = [],
+    ): Promise<ContractSpo> {
+        const spo = await this.contractSpoRepo.findOne({
+            where: { id, contract: { id: contractId, hotelId } },
+            relations,
+        });
+        if (!spo) throw new NotFoundException(`ContractSpo #${id} not found in contract #${contractId}`);
+        return spo;
+    }
+
+    private assertAllFound(resource: string, requestedIds: number[], foundCount: number, contractId: number): void {
+        const uniqueIds = [...new Set(requestedIds)];
+        if (foundCount !== uniqueIds.length) {
+            throw new NotFoundException(`${resource} not found in contract #${contractId}`);
+        }
+    }
+
+    private async findPeriodsOrThrow(hotelId: number, contractId: number, ids: number[]): Promise<Period[]> {
+        const uniqueIds = [...new Set(ids)];
+        if (uniqueIds.length === 0) return [];
+
+        const periods = await this.periodRepo.find({
+            where: { id: In(uniqueIds), contract: { id: contractId, hotelId } },
+        });
+        this.assertAllFound('Period', uniqueIds, periods.length, contractId);
+        return periods;
+    }
+
+    private async findContractRoomsOrThrow(hotelId: number, contractId: number, ids: number[]): Promise<ContractRoom[]> {
+        const uniqueIds = [...new Set(ids)];
+        if (uniqueIds.length === 0) return [];
+
+        const contractRooms = await this.contractRoomRepo.find({
+            where: { id: In(uniqueIds), contract: { id: contractId, hotelId } },
+        });
+        this.assertAllFound('ContractRoom', uniqueIds, contractRooms.length, contractId);
+        return contractRooms;
+    }
+
+    private async findArrangementsOrThrow(hotelId: number, ids: number[], contractId: number): Promise<Arrangement[]> {
+        const uniqueIds = [...new Set(ids)];
+        if (uniqueIds.length === 0) return [];
+
+        const arrangements = await this.arrangementRepo.find({
+            where: { id: In(uniqueIds), hotelId },
+        });
+        this.assertAllFound('Arrangement', uniqueIds, arrangements.length, contractId);
+        return arrangements;
+    }
+
+    async findAllByContract(hotelId: number, contractId: number): Promise<ContractSpo[]> {
+        await this.findContractOrThrow(hotelId, contractId);
         return this.contractSpoRepo.find({
-            where: { contractId },
+            where: { contract: { id: contractId, hotelId } },
             relations: [
                 'applicablePeriods', 'applicablePeriods.period',
                 'applicableContractRooms', 'applicableContractRooms.contractRoom',
@@ -49,13 +110,12 @@ export class ContractSpoService {
         });
     }
 
-    async createContractSpo(contractId: number, dto: CreateContractSpoDto): Promise<ContractSpo> {
-        const contract = await this.contractRepo.findOne({ where: { id: contractId } });
-        if (!contract) throw new NotFoundException(`Contract #${contractId} not found`);
+    async createContractSpo(hotelId: number, contractId: number, dto: CreateContractSpoDto): Promise<ContractSpo> {
+        const contract = await this.findContractOrThrow(hotelId, contractId);
 
-        const periods = dto.periodIds?.length ? await this.periodRepo.findBy({ id: In(dto.periodIds) }) : [];
-        const contractRooms = dto.contractRoomIds?.length ? await this.contractRoomRepo.findBy({ id: In(dto.contractRoomIds) }) : [];
-        const arrangements = dto.arrangementIds?.length ? await this.arrangementRepo.findBy({ id: In(dto.arrangementIds) }) : [];
+        const periods = dto.periodIds?.length ? await this.findPeriodsOrThrow(hotelId, contractId, dto.periodIds) : [];
+        const contractRooms = dto.contractRoomIds?.length ? await this.findContractRoomsOrThrow(hotelId, contractId, dto.contractRoomIds) : [];
+        const arrangements = dto.arrangementIds?.length ? await this.findArrangementsOrThrow(hotelId, dto.arrangementIds, contractId) : [];
 
         const spo = this.contractSpoRepo.create({
             name: dto.name,
@@ -76,17 +136,16 @@ export class ContractSpoService {
         return this.contractSpoRepo.save(spo);
     }
 
-    async importFromTemplate(contractId: number, dto: ImportSpoDto): Promise<ContractSpo> {
-        const contract = await this.contractRepo.findOne({ where: { id: contractId } });
-        if (!contract) throw new NotFoundException(`Contract #${contractId} not found`);
+    async importFromTemplate(hotelId: number, contractId: number, dto: ImportSpoDto): Promise<ContractSpo> {
+        const contract = await this.findContractOrThrow(hotelId, contractId);
 
-        const template = await this.templateSpoRepo.findOne({ where: { id: dto.templateId } });
-        if (!template) throw new NotFoundException(`TemplateSpo #${dto.templateId} not found`);
+        const template = await this.templateSpoRepo.findOne({ where: { id: dto.templateId, hotelId } });
+        if (!template) throw new NotFoundException(`TemplateSpo #${dto.templateId} not found in hotel #${hotelId}`);
 
         const isDiscount = ['PERCENTAGE_DISCOUNT', 'FIXED_DISCOUNT'].includes(template.benefitType);
         const baseValue = (template.value && Number(template.value) !== 0) ? template.value : (isDiscount ? template.benefitValue : template.value);
 
-        const periods = await this.periodRepo.find({ where: { contract: { id: contractId } } });
+        const periods = await this.periodRepo.find({ where: { contract: { id: contractId, hotelId } } });
 
         const spo = this.contractSpoRepo.create({
             name: template.name,
@@ -108,16 +167,25 @@ export class ContractSpoService {
         return this.contractSpoRepo.save(spo);
     }
 
-    async updateContractSpo(contractId: number, id: number, dto: UpdateContractSpoDto): Promise<ContractSpo> {
-        const spo = await this.contractSpoRepo.findOne({
-            where: { id, contractId },
-            relations: [
-                'applicablePeriods', 'applicablePeriods.period',
-                'applicableContractRooms', 'applicableContractRooms.contractRoom',
-                'applicableArrangements', 'applicableArrangements.arrangement'
-            ],
-        });
-        if (!spo) throw new NotFoundException(`ContractSpo #${id} not found`);
+    async updateContractSpo(hotelId: number, contractId: number, id: number, dto: UpdateContractSpoDto): Promise<ContractSpo> {
+        const spo = await this.findSpoOrThrow(hotelId, contractId, id, [
+            'applicablePeriods', 'applicablePeriods.period',
+            'applicableContractRooms', 'applicableContractRooms.contractRoom',
+            'applicableArrangements', 'applicableArrangements.arrangement',
+        ]);
+
+        if (dto.applicablePeriods?.length) {
+            await this.findPeriodsOrThrow(hotelId, contractId, dto.applicablePeriods.map(ap => ap.periodId));
+        }
+        if (dto.periodIds?.length) {
+            await this.findPeriodsOrThrow(hotelId, contractId, dto.periodIds);
+        }
+        if (dto.contractRoomIds?.length) {
+            await this.findContractRoomsOrThrow(hotelId, contractId, dto.contractRoomIds);
+        }
+        if (dto.arrangementIds?.length) {
+            await this.findArrangementsOrThrow(hotelId, dto.arrangementIds, contractId);
+        }
 
         if (dto.name !== undefined) spo.name = dto.name;
         if (dto.conditionType !== undefined) spo.conditionType = dto.conditionType;
@@ -137,14 +205,24 @@ export class ContractSpoService {
 
         // Pattern: Matrice 2D "Seasonal Override" avec Full Sync
         if (dto.applicablePeriods !== undefined || dto.periodIds !== undefined) {
+            let applicablePeriods: Period[] = [];
+            let legacyPeriods: Period[] = [];
+
+            if (dto.applicablePeriods && dto.applicablePeriods.length > 0) {
+                applicablePeriods = await this.findPeriodsOrThrow(
+                    hotelId,
+                    contractId,
+                    dto.applicablePeriods.map(ap => ap.periodId),
+                );
+            } else if (dto.periodIds && dto.periodIds.length > 0) {
+                legacyPeriods = await this.findPeriodsOrThrow(hotelId, contractId, dto.periodIds);
+            }
+
             await this.spoPeriodRepo.delete({ contractSpo: { id } });
 
             if (dto.applicablePeriods && dto.applicablePeriods.length > 0) {
-                const periodIds = dto.applicablePeriods.map(ap => ap.periodId);
-                const periods = periodIds.length ? await this.periodRepo.findBy({ id: In(periodIds) }) : [];
-
                 const pivots = dto.applicablePeriods.map(ap => {
-                    const period = periods.find(p => p.id === ap.periodId);
+                    const period = applicablePeriods.find(p => p.id === ap.periodId);
                     if (!period) return null;
                     const pivot = new ContractSpoPeriod();
                     pivot.contractSpo = spo;
@@ -157,8 +235,7 @@ export class ContractSpoService {
                     await this.spoPeriodRepo.save(pivots);
                 }
             } else if (dto.periodIds && dto.periodIds.length > 0) {
-                const periods = dto.periodIds.length ? await this.periodRepo.findBy({ id: In(dto.periodIds) }) : [];
-                const pivots = periods.map(period => {
+                const pivots = legacyPeriods.map(period => {
                     const pivot = new ContractSpoPeriod();
                     pivot.contractSpo = spo;
                     pivot.period = period;
@@ -171,10 +248,13 @@ export class ContractSpoService {
         }
 
         if (dto.contractRoomIds !== undefined) {
+            const contractRooms = dto.contractRoomIds.length > 0
+                ? await this.findContractRoomsOrThrow(hotelId, contractId, dto.contractRoomIds)
+                : [];
+
             await this.spoRoomRepo.delete({ contractSpo: { id } });
 
             if (dto.contractRoomIds.length > 0) {
-                const contractRooms = await this.contractRoomRepo.findBy({ id: In(dto.contractRoomIds) });
                 const pivots = contractRooms.map(contractRoom => {
                     const pivot = new ContractSpoRoom();
                     pivot.contractSpo = spo;
@@ -188,10 +268,13 @@ export class ContractSpoService {
         }
 
         if (dto.arrangementIds !== undefined) {
+            const arrangements = dto.arrangementIds.length > 0
+                ? await this.findArrangementsOrThrow(hotelId, dto.arrangementIds, contractId)
+                : [];
+
             await this.spoArrangementRepo.delete({ contractSpo: { id } });
 
             if (dto.arrangementIds.length > 0) {
-                const arrangements = await this.arrangementRepo.findBy({ id: In(dto.arrangementIds) });
                 const pivots = arrangements.map(arrangement => {
                     const pivot = new ContractSpoArrangement();
                     pivot.contractSpo = spo;
@@ -205,7 +288,7 @@ export class ContractSpoService {
         }
 
         return this.contractSpoRepo.findOne({
-            where: { id, contractId },
+            where: { id, contract: { id: contractId, hotelId } },
             relations: [
                 'applicablePeriods', 'applicablePeriods.period',
                 'applicableContractRooms', 'applicableContractRooms.contractRoom',
@@ -214,9 +297,8 @@ export class ContractSpoService {
         }) as Promise<ContractSpo>;
     }
 
-    async removeContractSpo(contractId: number, id: number): Promise<void> {
-        const spo = await this.contractSpoRepo.findOne({ where: { id, contractId } });
-        if (!spo) throw new NotFoundException(`ContractSpo #${id} not found`);
+    async removeContractSpo(hotelId: number, contractId: number, id: number): Promise<void> {
+        const spo = await this.findSpoOrThrow(hotelId, contractId, id);
         await this.contractSpoRepo.remove(spo);
     }
 }

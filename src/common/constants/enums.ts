@@ -119,3 +119,10 @@ export enum CancellationPenaltyType {
     FIXED_AMOUNT = 'FIXED_AMOUNT',
 }
 
+// ─── Proforma Invoice ────────────────────────────────────────────────
+
+export enum ProformaInvoiceStatus {
+    GENERATED = 'GENERATED',
+    CANCELLED = 'CANCELLED',
+}
+

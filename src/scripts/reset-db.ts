@@ -268,11 +268,11 @@ async function resetDb() {
 
         // 11. Import Rules into Contract
         console.log('\n📥 Importation des règles dans le contrat:');
-        for (const t of templateSupplementsCreated) await app.get(ContractSupplementService).importFromTemplate(contract.id, t.id);
-        for (const t of templateReductionsCreated) await app.get(ContractReductionService).importFromTemplate(contract.id, t.id, hotel.id);
-        for (const t of templateMonoparentalsCreated) await app.get(ContractMonoparentalRuleService).importFromTemplate(contract.id, t.id, hotel.id);
-        for (const t of templateEbsCreated) await app.get(ContractEarlyBookingService).importFromTemplate(contract.id, t.id, hotel.id);
-        for (const t of templateSposCreated) await app.get(ContractSpoService).importFromTemplate(contract.id, { templateId: t.id });
+        for (const t of templateSupplementsCreated) await app.get(ContractSupplementService).importFromTemplate(hotel.id, contract.id, t.id);
+        for (const t of templateReductionsCreated) await app.get(ContractReductionService).importFromTemplate(hotel.id, contract.id, t.id);
+        for (const t of templateMonoparentalsCreated) await app.get(ContractMonoparentalRuleService).importFromTemplate(hotel.id, contract.id, t.id);
+        for (const t of templateEbsCreated) await app.get(ContractEarlyBookingService).importFromTemplate(hotel.id, contract.id, t.id);
+        for (const t of templateSposCreated) await app.get(ContractSpoService).importFromTemplate(hotel.id, contract.id, { templateId: t.id });
 
         // 12. Setup Matrix Grid (Periods & Rooms)
         console.log('\n📅 Configuration de la Grille (Périodes & Chambres):');

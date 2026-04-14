@@ -35,10 +35,66 @@ export class ContractMonoparentalRuleService {
         private readonly templateRepo: Repository<TemplateMonoparentalRule>,
     ) { }
 
+    private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
+        const contract = await this.contractRepo.findOne({
+            where: { id: contractId, hotelId },
+        });
+        if (!contract) {
+            throw new NotFoundException(`Contract #${contractId} not found in hotel #${hotelId}`);
+        }
+        return contract;
+    }
+
+    private async findRuleOrThrow(
+        hotelId: number,
+        contractId: number,
+        id: number,
+        relations: string[] = [],
+    ): Promise<ContractMonoparentalRule> {
+        const rule = await this.ruleRepo.findOne({
+            where: { id, contract: { id: contractId, hotelId } },
+            relations,
+        });
+        if (!rule) {
+            throw new NotFoundException(`ContractMonoparentalRule #${id} not found in contract #${contractId}`);
+        }
+        return rule;
+    }
+
+    private assertAllFound(resource: string, requestedIds: number[], foundCount: number, contractId: number): void {
+        const uniqueIds = [...new Set(requestedIds)];
+        if (foundCount !== uniqueIds.length) {
+            throw new NotFoundException(`${resource} not found in contract #${contractId}`);
+        }
+    }
+
+    private async findContractRoomsOrThrow(hotelId: number, contractId: number, ids: number[]): Promise<ContractRoom[]> {
+        const uniqueIds = [...new Set(ids)];
+        if (uniqueIds.length === 0) return [];
+
+        const rooms = await this.contractRoomRepo.find({
+            where: { id: In(uniqueIds), contract: { id: contractId, hotelId } },
+        });
+        this.assertAllFound('ContractRoom', uniqueIds, rooms.length, contractId);
+        return rooms;
+    }
+
+    private async findPeriodsOrThrow(hotelId: number, contractId: number, ids: number[]): Promise<Period[]> {
+        const uniqueIds = [...new Set(ids)];
+        if (uniqueIds.length === 0) return [];
+
+        const periods = await this.periodRepo.find({
+            where: { id: In(uniqueIds), contract: { id: contractId, hotelId } },
+        });
+        this.assertAllFound('Period', uniqueIds, periods.length, contractId);
+        return periods;
+    }
+
     // Fetch all monoparental rules for a given contract (with targeting)
-    async findByContract(contractId: number): Promise<ContractMonoparentalRule[]> {
+    async findByContract(hotelId: number, contractId: number): Promise<ContractMonoparentalRule[]> {
+        await this.findContractOrThrow(hotelId, contractId);
         return this.ruleRepo.find({
-            where: { contract: { id: contractId } },
+            where: { contract: { id: contractId, hotelId } },
             relations: [
                 'applicableContractRooms',
                 'applicableContractRooms.contractRoom',
@@ -52,16 +108,11 @@ export class ContractMonoparentalRuleService {
 
     // Clone a TemplateMonoparentalRule into a ContractMonoparentalRule (verifies hotelId)
     async importFromTemplate(
+        hotelId: number,
         contractId: number,
         templateId: number,
-        hotelId: number,
     ): Promise<ContractMonoparentalRule> {
-        const contract = await this.contractRepo.findOne({
-            where: { id: contractId, hotelId },
-        });
-        if (!contract) {
-            throw new NotFoundException(`Contract #${contractId} not found in hotel #${hotelId}`);
-        }
+        const contract = await this.findContractOrThrow(hotelId, contractId);
 
         const template = await this.templateRepo.findOne({
             where: { id: templateId, hotelId },
@@ -86,7 +137,7 @@ export class ContractMonoparentalRuleService {
         
         const savedRule = await this.ruleRepo.save(rule);
 
-        const periods = await this.periodRepo.find({ where: { contract: { id: contractId } } });
+        const periods = await this.periodRepo.find({ where: { contract: { id: contractId, hotelId } } });
         const periodJunctions = periods.map(period => this.rulePeriodRepo.create({ contractMonoparentalRule: savedRule, period }));
         await this.rulePeriodRepo.save(periodJunctions);
 
@@ -95,15 +146,21 @@ export class ContractMonoparentalRuleService {
 
     // Update rule values and/or targeting
     async update(
+        hotelId: number,
+        contractId: number,
         id: number,
         dto: UpdateContractMonoparentalRuleDto,
     ): Promise<ContractMonoparentalRule> {
-        const rule = await this.ruleRepo.findOne({
-            where: { id },
-            relations: ['applicableContractRooms', 'applicablePeriods'],
-        });
-        if (!rule) {
-            throw new NotFoundException(`ContractMonoparentalRule #${id} not found`);
+        const rule = await this.findRuleOrThrow(hotelId, contractId, id, [
+            'applicableContractRooms',
+            'applicablePeriods',
+        ]);
+
+        if (dto.applicableContractRoomIds?.length) {
+            await this.findContractRoomsOrThrow(hotelId, contractId, dto.applicableContractRoomIds);
+        }
+        if (dto.applicablePeriods?.length) {
+            await this.findPeriodsOrThrow(hotelId, contractId, dto.applicablePeriods.map(ap => ap.periodId));
         }
 
         // Update scalar fields
@@ -121,12 +178,12 @@ export class ContractMonoparentalRuleService {
 
         // Update targeting — rooms (full replacement)
         if (dto.applicableContractRoomIds !== undefined) {
+            const rooms = dto.applicableContractRoomIds.length > 0
+                ? await this.findContractRoomsOrThrow(hotelId, contractId, dto.applicableContractRoomIds)
+                : [];
             await this.ruleRoomRepo.delete({ contractMonoparentalRule: { id } });
 
             if (dto.applicableContractRoomIds.length > 0) {
-                const rooms = await this.contractRoomRepo.find({
-                    where: { id: In(dto.applicableContractRoomIds) },
-                });
                 const junctions = rooms.map((room) =>
                     this.ruleRoomRepo.create({ contractMonoparentalRule: rule, contractRoom: room }),
                 );
@@ -136,13 +193,12 @@ export class ContractMonoparentalRuleService {
 
         // Update targeting — periods (full replacement)
         if (dto.applicablePeriods !== undefined) {
+            const periods = dto.applicablePeriods.length > 0
+                ? await this.findPeriodsOrThrow(hotelId, contractId, dto.applicablePeriods.map(ap => ap.periodId))
+                : [];
             await this.rulePeriodRepo.delete({ contractMonoparentalRule: { id } });
 
             if (dto.applicablePeriods.length > 0) {
-                const periodIds = dto.applicablePeriods.map(ap => ap.periodId);
-                const periods = await this.periodRepo.find({
-                    where: { id: In(periodIds) },
-                });
                 const junctions = dto.applicablePeriods.map((ap) => {
                     const period = periods.find(p => p.id === ap.periodId);
                     if (!period) return null;
@@ -162,7 +218,7 @@ export class ContractMonoparentalRuleService {
 
         // Reload with fresh relations
         return this.ruleRepo.findOne({
-            where: { id },
+            where: { id, contract: { id: contractId, hotelId } },
             relations: [
                 'applicableContractRooms',
                 'applicableContractRooms.contractRoom',
@@ -174,10 +230,8 @@ export class ContractMonoparentalRuleService {
     }
 
     // Hard delete a contract monoparental rule
-    async remove(id: number): Promise<void> {
-        const result = await this.ruleRepo.delete(id);
-        if (result.affected === 0) {
-            throw new NotFoundException(`ContractMonoparentalRule #${id} not found`);
-        }
+    async remove(hotelId: number, contractId: number, id: number): Promise<void> {
+        const rule = await this.findRuleOrThrow(hotelId, contractId, id);
+        await this.ruleRepo.remove(rule);
     }
 }

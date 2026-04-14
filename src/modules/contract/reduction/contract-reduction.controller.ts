@@ -16,7 +16,6 @@ import { UpdateContractReductionDto } from './dto/update-contract-reduction.dto'
 
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/enums';
-import { Request } from 'express';
 
 @Controller('contracts/:contractId/reductions')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -34,8 +33,11 @@ export class ContractReductionController {
     }
 
     @Get()
-    findAll(@Param('contractId', ParseIntPipe) contractId: number) {
-        return this.reductionService.findByContract(contractId);
+    findAll(
+        @Req() req: AuthenticatedRequest,
+        @Param('contractId', ParseIntPipe) contractId: number,
+    ) {
+        return this.reductionService.findByContract(this.getHotelId(req), contractId);
     }
 
     @Post('import')
@@ -45,22 +47,28 @@ export class ContractReductionController {
         @Body() dto: ImportReductionDto,
     ) {
         return this.reductionService.importFromTemplate(
+            this.getHotelId(req),
             contractId,
             dto.templateId,
-            this.getHotelId(req),
         );
     }
 
     @Patch(':reductionId')
     update(
+        @Req() req: AuthenticatedRequest,
+        @Param('contractId', ParseIntPipe) contractId: number,
         @Param('reductionId', ParseIntPipe) reductionId: number,
         @Body() dto: UpdateContractReductionDto,
     ) {
-        return this.reductionService.update(reductionId, dto);
+        return this.reductionService.update(this.getHotelId(req), contractId, reductionId, dto);
     }
 
     @Delete(':reductionId')
-    remove(@Param('reductionId', ParseIntPipe) reductionId: number) {
-        return this.reductionService.remove(reductionId);
+    remove(
+        @Req() req: AuthenticatedRequest,
+        @Param('contractId', ParseIntPipe) contractId: number,
+        @Param('reductionId', ParseIntPipe) reductionId: number,
+    ) {
+        return this.reductionService.remove(this.getHotelId(req), contractId, reductionId);
     }
 }

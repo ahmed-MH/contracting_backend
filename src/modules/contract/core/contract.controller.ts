@@ -72,6 +72,11 @@ export class ContractController {
         res.end(buffer);
     }
 
+    @Get(':id/activation-check')
+    validateActivation(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
+        return this.contractService.validateActivation(this.getHotelId(req), id);
+    }
+
     @Patch(':id')
     updateContract(
         @Req() req: AuthenticatedRequest,

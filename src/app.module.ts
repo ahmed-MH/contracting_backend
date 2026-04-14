@@ -14,6 +14,7 @@ import { AffiliateModule } from './modules/affiliate/affiliate.module';
 import { ContractModule } from './modules/contract/contract.module';
 import { PricingModule } from './modules/pricing/pricing.module';
 import { SimulationModule } from './modules/simulation/simulation.module';
+import { ProformaModule } from './modules/proforma/proforma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { MailModule } from './modules/mail/mail.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
@@ -45,6 +46,7 @@ import { buildNestMssqlConfig } from './config/database.config';
     ContractModule,
     PricingModule,
     SimulationModule,
+    ProformaModule,
     TenantsModule,
     PlansModule,
     SubscriptionsModule,

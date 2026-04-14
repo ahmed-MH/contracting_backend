@@ -6,6 +6,7 @@ import { Contract } from './core/entities/contract.entity';
 import { Period } from './core/entities/period.entity';
 import { ContractRoom } from './core/entities/contract-room.entity';
 import { ContractService } from './core/contract.service';
+import { ContractPdfService } from './core/contract-pdf.service';
 import { ContractController } from './core/contract.controller';
 import { ContractLine } from './core/entities/contract-line.entity';
 import { Price } from './core/entities/price.entity';
@@ -117,6 +118,7 @@ import { TemplateCancellationRule } from '../catalog/cancellation/entities/templ
     ],
     providers: [
         ContractService,
+        ContractPdfService,
         ContractSupplementService,
         ContractReductionService,
         ContractMonoparentalRuleService,

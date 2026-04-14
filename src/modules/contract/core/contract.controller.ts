@@ -1,6 +1,7 @@
 import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
-import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Query, Req, Res } from '@nestjs/common';
 import { ContractService } from './contract.service';
+import { ContractPdfService } from './contract-pdf.service';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { CreatePeriodDto } from './dto/create-period.dto';
 import { CreateContractRoomDto } from './dto/create-contract-room.dto';
@@ -9,12 +10,15 @@ import { BatchUpsertPricesDto } from './dto/batch-upsert-prices.dto';
 
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/enums';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 
 @Controller('contracts')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
 export class ContractController {
-    constructor(private readonly contractService: ContractService) { }
+    constructor(
+        private readonly contractService: ContractService,
+        private readonly contractPdfService: ContractPdfService,
+    ) { }
 
     private getHotelId(req: AuthenticatedRequest): number {
         const hotelId = Number(req.headers['x-hotel-id']);
@@ -22,6 +26,17 @@ export class ContractController {
             throw new Error('Missing or invalid x-hotel-id header');
         }
         return hotelId;
+    }
+
+    private contentDisposition(filename: string): string {
+        const asciiFallback = filename
+            .normalize('NFKD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^\x20-\x7E]/g, '')
+            .replace(/["\\]/g, '')
+            || 'contract.pdf';
+
+        return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
     }
 
     @Post()
@@ -37,6 +52,24 @@ export class ContractController {
     @Get(':id')
     getContractDetails(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
         return this.contractService.getContractDetails(this.getHotelId(req), id);
+    }
+
+    @Get(':id/pdf')
+    async downloadPdf(
+        @Req() req: AuthenticatedRequest,
+        @Res() res: Response,
+        @Param('id', ParseIntPipe) id: number,
+        @Query('partnerId') partnerId: string,
+    ) {
+        const hotelId = this.getHotelId(req);
+        const { buffer, filename } = await this.contractPdfService.generate(hotelId, id, partnerId);
+
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': this.contentDisposition(filename),
+            'Content-Length': buffer.length,
+        });
+        res.end(buffer);
     }
 
     @Patch(':id')

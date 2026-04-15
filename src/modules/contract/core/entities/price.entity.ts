@@ -8,8 +8,8 @@ import {
 import { ContractLine } from './contract-line.entity';
 import { Arrangement } from '../../../hotel/entities/arrangement.entity';
 
-@Entity()
-@Unique(['contractLine', 'arrangement'])
+@Entity('contract_rates')
+@Unique(['contractLine'])
 export class Price {
     @PrimaryGeneratedColumn()
     id: number;
@@ -31,6 +31,8 @@ export class Price {
     })
     contractLine: ContractLine;
 
-    @ManyToOne(() => Arrangement)
-    arrangement: Arrangement;
+    // Deprecated compatibility field. Base-board rates no longer vary by arrangement;
+    // saved rows keep the contract base arrangement only to help migrate older data.
+    @ManyToOne(() => Arrangement, { nullable: true })
+    arrangement: Arrangement | null;
 }

@@ -74,6 +74,10 @@ export class UpdateContractSupplementDto {
     @IsOptional()
     maxAge?: number | null;
 
+    @IsInt()
+    @IsOptional()
+    targetArrangementId?: number | null;
+
     @IsArray()
     @IsInt({ each: true })
     @IsOptional()

@@ -38,7 +38,8 @@ export class SimulationService {
             relations: [
                 'periods',
                 'contractRooms',
-                'contractRooms.roomType'
+                'contractRooms.roomType',
+                'baseArrangement',
             ],
         });
 
@@ -100,6 +101,7 @@ export class SimulationService {
                 'applicableContractRooms.contractRoom',
                 'applicablePeriods',
                 'applicablePeriods.period',
+                'targetArrangement',
             ],
         });
 
@@ -234,9 +236,9 @@ export class SimulationService {
             } else if (!line.isContracted) {
                 dailyData.push({ dateStr, currentDate, baseRate: 0, occupationalNet: 0, reductionsApplied: [], line, isAvailable: false, reason: 'Not contracted' });
             } else {
-                const price = line.prices.find(p => p.arrangement.id === boardTypeId);
+                const price = this.selectBasePrice(line, contract.baseArrangementId);
                 if (!price) {
-                    dailyData.push({ dateStr, currentDate, baseRate: 0, occupationalNet: 0, reductionsApplied: [], line, isAvailable: false, reason: 'No arrangement price' });
+                    dailyData.push({ dateStr, currentDate, baseRate: 0, occupationalNet: 0, reductionsApplied: [], line, isAvailable: false, reason: 'No base-board rate' });
                 } else {
                     const baseRate = Number(price.amount);
                     let nightNet = 0;
@@ -257,11 +259,12 @@ export class SimulationService {
                     let suppName = '';
                     
                     if (singleSupp) {
+                        const singleValue = this.supplementValueForPeriod(singleSupp, line.period.id);
                         if (singleSupp.type === SupplementCalculationType.PERCENTAGE) {
-                            suppValue = this.round((Number(singleSupp.value) / 100) * baseRate, 3);
-                            suppName = `Supplément Single (${singleSupp.value}%)`;
+                            suppValue = this.round((singleValue / 100) * baseRate, 3);
+                            suppName = `Supplément Single (${singleValue}%)`;
                         } else {
-                            suppValue = Number(singleSupp.value) || 0;
+                            suppValue = singleValue;
                             suppName = `Supplément Single (${singleSupp.name})`;
                         }
                     }
@@ -504,15 +507,18 @@ export class SimulationService {
                     /* istanbul ignore next */
                     const isNotSingle = s.systemCode !== SupplementSystemCode.SINGLE_OCCUPANCY;
                     /* istanbul ignore next */
-                    return s.isMandatory && matchesRoom && matchesPeriod && isForDate && isNotSingle;
+                    const matchesSelectedMealPlan = this.matchesSelectedMealPlan(s, boardTypeId, contract);
+                    /* istanbul ignore next */
+                    return s.isMandatory && matchesRoom && matchesPeriod && isForDate && isNotSingle && matchesSelectedMealPlan;
                 }).forEach(s => {
+                    const supplementBaseValue = this.supplementValueForPeriod(s, day.line!.period.id);
                     /* istanbul ignore next */
                     if (s.applicationType === PricingModifierApplicationType.FLAT_RATE_PER_STAY) {
                         if (!stayModifiers.some(sm => sm.name === s.name)) {
-                            stayModifiers.push({ name: s.name, amount: Number(s.value) });
+                            stayModifiers.push({ name: s.name, amount: supplementBaseValue });
                         }
                     } else {
-                        let amount = Number(s.value);
+                        let amount = supplementBaseValue;
                         
                         /* istanbul ignore next */
                         if (s.applicationType === PricingModifierApplicationType.PER_NIGHT_PER_PERSON) {
@@ -527,7 +533,7 @@ export class SimulationService {
                             if (eligiblePaxCount > 0) {
                                 amount *= eligiblePaxCount;
                                 if (s.specificDate) {
-                                    eventSupplementsForDay.push({ name: `${s.name} - Formule: ${Number(s.value)} ${contract.currency} x ${eligiblePaxCount} Pax`, amount: this.round(amount, 3) });
+                                    eventSupplementsForDay.push({ name: `${s.name} - Formule: ${supplementBaseValue} ${contract.currency} x ${eligiblePaxCount} Pax`, amount: this.round(amount, 3) });
                                 } else {
                                     supplementsApplied.push({ name: s.name, amount: this.round(amount, 3) });
                                 }
@@ -616,6 +622,27 @@ export class SimulationService {
             },
             stayModifiers: [...stayModifiers, ...eventModifiers]
         };
+    }
+
+    private selectBasePrice(line: ContractLine, baseArrangementId?: number | null) {
+        if (!line.prices?.length) return null;
+        if (!baseArrangementId) return line.prices[0];
+        return line.prices.find((price) => price.arrangement?.id === baseArrangementId) ?? line.prices[0];
+    }
+
+    private matchesSelectedMealPlan(supplement: ContractSupplement, boardTypeId: number, contract: Contract): boolean {
+        if (supplement.systemCode !== SupplementSystemCode.MEAL_PLAN) return true;
+        if (!boardTypeId || boardTypeId === contract.baseArrangementId) return false;
+        return supplement.targetArrangement?.id === boardTypeId || supplement.targetArrangementId === boardTypeId;
+    }
+
+    private findSupplementPeriodTarget(supplement: ContractSupplement, periodId: number): any | undefined {
+        return supplement.applicablePeriods?.find((target: any) => target.period?.id === periodId || target.periodId === periodId);
+    }
+
+    private supplementValueForPeriod(supplement: ContractSupplement, periodId: number): number {
+        const periodTarget = this.findSupplementPeriodTarget(supplement, periodId);
+        return Number(periodTarget?.overrideValue ?? supplement.value ?? 0) || 0;
     }
 
     private round(value: number, precision: number): number {

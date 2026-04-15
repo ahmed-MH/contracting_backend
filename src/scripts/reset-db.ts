@@ -20,7 +20,7 @@ import { ContractMonoparentalRuleService } from '../modules/contract/monoparenta
 import { ContractEarlyBookingService } from '../modules/contract/early-booking/contract-early-booking.service';
 import { ContractSpoService } from '../modules/contract/spo/contract-spo.service';
 import { ContractCancellationService } from '../modules/contract/cancellation/contract-cancellation.service';
-import { ExchangeRateService } from '../modules/hotel/exchange-rate.service';
+import { ExchangeRateService } from '../modules/exchange-rates/exchange-rate.service';
 import { UsersService } from '../modules/users/users.service';
 import { TenantsService } from '../modules/tenants/tenants.service';
 import { Arrangement } from '../modules/hotel/entities/arrangement.entity';
@@ -47,6 +47,7 @@ import {
 
 import { AffiliateService } from '../modules/affiliate/affiliate.service';
 import { CreateAffiliateDto } from '../modules/affiliate/dto/create-affiliate.dto';
+import { ExchangeRateSource } from '../modules/exchange-rates/entities/exchange-rate.entity';
 
 import { TemplateSupplement } from '../modules/catalog/supplement/entities/template-supplement.entity';
 import { TemplateReduction } from '../modules/catalog/reduction/entities/template-reduction.entity';
@@ -129,12 +130,12 @@ async function resetDb() {
         const addDays = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
 
         const exchangeRatesToCreate = [
-            { currency: 'EUR', rate: 3.35, validFrom: toDateStr(new Date(2024, 0, 1)) },
-            { currency: 'USD', rate: 3.12, validFrom: toDateStr(new Date(2024, 0, 1)) },
+            { fromCurrency: 'EUR', toCurrency: hotel.defaultCurrency, rate: 3.35, effectiveDate: toDateStr(new Date(2024, 0, 1)), source: ExchangeRateSource.MANUAL },
+            { fromCurrency: 'USD', toCurrency: hotel.defaultCurrency, rate: 3.12, effectiveDate: toDateStr(new Date(2024, 0, 1)), source: ExchangeRateSource.MANUAL },
         ];
         for (const er of exchangeRatesToCreate) {
             const saved = await exchangeRateService.create(hotel.id, er);
-            console.log(`  💱  [${saved.currency}] 1 ${saved.currency} = ${saved.rate} ${hotel.defaultCurrency}`);
+            console.log(`  FX  [${saved.fromCurrency}_${saved.toCurrency}] 1 ${saved.fromCurrency} = ${saved.rate} ${saved.toCurrency}`);
         }
 
         // 2. Room Types (PDF Exact)

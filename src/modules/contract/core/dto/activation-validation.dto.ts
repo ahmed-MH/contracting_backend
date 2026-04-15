@@ -14,8 +14,6 @@ export interface ActivationMissingRate {
     periodName: string;
     contractRoomId: number;
     roomName: string;
-    arrangementId: number;
-    arrangementName: string;
 }
 
 export interface ActivationValidationSummary {

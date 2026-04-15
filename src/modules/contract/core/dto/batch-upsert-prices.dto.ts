@@ -11,8 +11,8 @@ export class PriceDto {
     contractRoomId: number;
 
     @IsNumber()
-    @IsNotEmpty()
-    arrangementId: number;
+    @IsOptional()
+    arrangementId?: number;
 
     @IsNumber()
     @IsNotEmpty()

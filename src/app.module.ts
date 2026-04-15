@@ -8,6 +8,7 @@ import { HotelAccessGuard } from './common/guards/hotel-access.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
 import { HotelModule } from './modules/hotel/hotel.module';
+import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { UsersModule } from './modules/users/users.module';
 import { AffiliateModule } from './modules/affiliate/affiliate.module';
@@ -40,6 +41,7 @@ import { buildNestMssqlConfig } from './config/database.config';
 
     // Feature modules
     HotelModule,
+    ExchangeRatesModule,
     CatalogModule,
     AffiliateModule,
     UsersModule,

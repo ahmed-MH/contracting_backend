@@ -269,10 +269,10 @@ export class ContractService {
             }
         }
 
-        const requiredArrangement = await this.resolveRequiredArrangement(hotelId, contract, errors, invalidTargets);
+        await this.resolveRequiredArrangement(hotelId, contract, errors, invalidTargets);
 
-        if (periods.length > 0 && contractRooms.length > 0 && requiredArrangement) {
-            await this.validateRequiredRates(contract.id, hotelId, periods, contractRooms, requiredArrangement, errors, missingRates);
+        if (periods.length > 0 && contractRooms.length > 0) {
+            await this.validateRequiredRates(contract.id, hotelId, periods, contractRooms, errors, missingRates);
         }
 
         await this.validateRuleTargets(contract.id, hotelId, errors, invalidTargets);
@@ -401,7 +401,6 @@ export class ContractService {
         hotelId: number,
         periods: Period[],
         contractRooms: ContractRoom[],
-        arrangement: Arrangement,
         errors: ActivationValidationIssue[],
         missingRates: ActivationMissingRate[],
     ): Promise<void> {
@@ -410,7 +409,7 @@ export class ContractService {
                 period: { contract: { id: contractId, hotelId } },
                 contractRoom: { contract: { id: contractId, hotelId } },
             },
-            relations: ['period', 'contractRoom', 'contractRoom.roomType', 'prices', 'prices.arrangement'],
+            relations: ['period', 'contractRoom', 'contractRoom.roomType', 'prices'],
         });
 
         const lineByCell = new Map<string, ContractLine>();
@@ -423,7 +422,7 @@ export class ContractService {
         for (const period of periods) {
             for (const contractRoom of contractRooms) {
                 const line = lineByCell.get(`${period.id}:${contractRoom.id}`);
-                const price = line?.prices?.find((p) => p.arrangement?.id === arrangement.id);
+                const price = line?.prices?.[0];
                 const amount = price?.amount === undefined || price?.amount === null ? NaN : Number(price.amount);
 
                 if (!line || !line.isContracted || !price || !Number.isFinite(amount) || amount < 0) {
@@ -432,8 +431,6 @@ export class ContractService {
                         periodName: period.name,
                         contractRoomId: contractRoom.id,
                         roomName: contractRoom.roomType?.name ?? `ContractRoom #${contractRoom.id}`,
-                        arrangementId: arrangement.id,
-                        arrangementName: arrangement.name,
                     });
                 }
             }
@@ -442,7 +439,7 @@ export class ContractService {
         for (const missingRate of missingRates.slice(0, 50)) {
             errors.push({
                 code: 'MISSING_RATE',
-                message: `Missing rates for ${missingRate.periodName} / ${missingRate.roomName} / ${missingRate.arrangementName}`,
+                message: `Missing base rate for ${missingRate.periodName} / ${missingRate.roomName}`,
                 details: missingRate,
             });
         }
@@ -762,7 +759,7 @@ export class ContractService {
     async getContractPrices(hotelId: number, id: number) {
         const contract = await this.contractRepo.findOne({
             where: { id, hotelId },
-            relations: ['periods', 'contractRooms'],
+            relations: ['periods', 'contractRooms', 'baseArrangement'],
         });
 
         if (!contract) {
@@ -779,11 +776,10 @@ export class ContractService {
             .where('period.contractId = :contractId', { contractId: id })
             .getMany();
 
-        // Strip prices whose arrangement has been deleted (leftJoin returns null for deleted relations)
+        // Transitional compatibility: old data may contain one price per arrangement.
+        // The base-board model exposes only one base rate per Room x Period cell.
         for (const line of contractLines) {
-            if (line.prices) {
-                line.prices = line.prices.filter(p => p.arrangement != null);
-            }
+            line.prices = this.selectBasePrices(line.prices ?? [], contract.baseArrangementId);
         }
 
         return contractLines;
@@ -801,19 +797,6 @@ export class ContractService {
 
         const validPeriodIds = new Set(contract.periods.map(p => p.id));
         const validRoomIds = new Set(contract.contractRooms.map(r => r.id));
-        const requestedArrangementIds = [
-            ...new Set(dto.cells.flatMap(cell => cell.prices.map(price => price.arrangementId))),
-        ];
-
-        if (requestedArrangementIds.length > 0) {
-            const arrangements = await this.arrangementRepo.find({
-                where: { id: In(requestedArrangementIds), hotelId },
-            });
-            if (arrangements.length !== requestedArrangementIds.length) {
-                throw new NotFoundException(`Arrangement not found in hotel #${hotelId}`);
-            }
-        }
-
         await this.dataSource.transaction(async (manager) => {
             const contractLineRepo = manager.getRepository(ContractLine);
             const priceRepo = manager.getRepository(Price);
@@ -847,38 +830,41 @@ export class ContractService {
                 }
                 contractLine = await contractLineRepo.save(contractLine);
 
-                // If not contracted, skip price rows
-                if (!cell.isContracted) continue;
-
-                for (const priceItem of cell.prices) {
-                    // Find or Update Price for this arrangement
-                    let price = await priceRepo.findOne({
-                        where: {
-                            contractLine: { id: contractLine.id },
-                            arrangement: { id: priceItem.arrangementId },
-                        },
-                    });
-
-                    if (!price) {
-                        price = priceRepo.create({
-                            contractLine: { id: contractLine.id },
-                            arrangement: { id: priceItem.arrangementId },
-                            amount: priceItem.amount,
-                            currency: contract.currency,
-                            minStay: priceItem.minStay,
-                            releaseDays: priceItem.releaseDays,
-                        });
-                    } else {
-                        price.amount = priceItem.amount;
-                        price.currency = contract.currency;
-                        price.minStay = priceItem.minStay;
-                        price.releaseDays = priceItem.releaseDays;
-                    }
-                    await priceRepo.save(price);
+                // If not contracted, clear any base-rate rows and skip price upsert.
+                if (!cell.isContracted) {
+                    await priceRepo.delete({ contractLine: { id: contractLine.id } });
+                    continue;
                 }
+
+                const basePriceItem = cell.prices.find((priceItem) => priceItem.amount !== undefined && priceItem.amount !== null);
+                if (!basePriceItem) {
+                    await priceRepo.delete({ contractLine: { id: contractLine.id } });
+                    continue;
+                }
+
+                // The simplified model stores one base-board rate per Room x Period cell.
+                // Older arrangement-specific rows are collapsed when this cell is saved.
+                await priceRepo.delete({ contractLine: { id: contractLine.id } });
+                const price = priceRepo.create({
+                    contractLine: { id: contractLine.id },
+                    arrangement: contract.baseArrangementId ? { id: contract.baseArrangementId } : undefined,
+                    amount: basePriceItem.amount,
+                    currency: contract.currency,
+                    minStay: basePriceItem.minStay,
+                    releaseDays: basePriceItem.releaseDays,
+                });
+                await priceRepo.save(price);
             }
         });
 
         return { success: true, message: `${dto.cells.length} cells processed.` };
+    }
+
+    private selectBasePrices(prices: Price[], baseArrangementId?: number | null): Price[] {
+        if (!prices.length) return [];
+        const basePrice = baseArrangementId
+            ? prices.find((price) => price.arrangement?.id === baseArrangementId)
+            : undefined;
+        return [basePrice ?? prices[0]];
     }
 }

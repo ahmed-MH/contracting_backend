@@ -60,9 +60,16 @@ export class ContractController {
         @Res() res: Response,
         @Param('id', ParseIntPipe) id: number,
         @Query('partnerId') partnerId: string,
+        @Query('language') language: string,
+        @Query('currency') currency: string,
     ) {
         const hotelId = this.getHotelId(req);
-        const { buffer, filename } = await this.contractPdfService.generate(hotelId, id, partnerId);
+        const { buffer, filename } = await this.contractPdfService.generate(hotelId, id, {
+            partnerId,
+            language,
+            currency,
+            generatedBy: req.user?.id ?? null,
+        });
 
         res.set({
             'Content-Type': 'application/pdf',
@@ -135,4 +142,5 @@ export class ContractController {
     ) {
         return this.contractService.batchUpsertPrices(this.getHotelId(req), id, dto);
     }
+
 }

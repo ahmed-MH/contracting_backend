@@ -9,6 +9,7 @@ import { ContractRoom } from '../core/entities/contract-room.entity';
 import { Period } from '../core/entities/period.entity';
 import { TemplateSupplement } from '../../catalog/supplement/entities/template-supplement.entity';
 import { UpdateContractSupplementDto } from './dto/update-contract-supplement.dto';
+import { Arrangement } from '../../hotel/entities/arrangement.entity';
 
 @Injectable()
 export class ContractSupplementService {
@@ -33,6 +34,9 @@ export class ContractSupplementService {
 
         @InjectRepository(TemplateSupplement)
         private readonly templateRepo: Repository<TemplateSupplement>,
+
+        @InjectRepository(Arrangement)
+        private readonly arrangementRepo: Repository<Arrangement>,
     ) { }
 
     private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
@@ -101,6 +105,7 @@ export class ContractSupplementService {
                 'applicableContractRooms.contractRoom.roomType',
                 'applicablePeriods',
                 'applicablePeriods.period',
+                'targetArrangement',
             ],
             order: { id: 'DESC' },
         });
@@ -186,6 +191,7 @@ export class ContractSupplementService {
                 'applicableContractRooms.contractRoom.roomType',
                 'applicablePeriods',
                 'applicablePeriods.period',
+                'targetArrangement',
             ],
         }) as Promise<ContractSupplement>;
     }
@@ -212,6 +218,12 @@ export class ContractSupplementService {
         if (dto.applicablePeriodIds?.length) {
             await this.findPeriodsOrThrow(hotelId, contractId, dto.applicablePeriodIds);
         }
+        if (dto.targetArrangementId) {
+            const arrangement = await this.arrangementRepo.findOne({ where: { id: dto.targetArrangementId, hotelId } });
+            if (!arrangement) {
+                throw new NotFoundException(`Arrangement #${dto.targetArrangementId} not found in hotel #${hotelId}`);
+            }
+        }
 
         // Update scalar fields
         if (dto.reference !== undefined) supplement.reference = (dto.reference || null) as string;
@@ -224,6 +236,7 @@ export class ContractSupplementService {
         if (dto.applicationType !== undefined) supplement.applicationType = dto.applicationType;
         if (dto.minAge !== undefined) supplement.minAge = dto.minAge;
         if (dto.maxAge !== undefined) supplement.maxAge = dto.maxAge;
+        if (dto.targetArrangementId !== undefined) supplement.targetArrangementId = dto.targetArrangementId;
 
         await this.supplementRepo.save(supplement);
 
@@ -307,6 +320,7 @@ export class ContractSupplementService {
                 'applicableContractRooms.contractRoom.roomType',
                 'applicablePeriods',
                 'applicablePeriods.period',
+                'targetArrangement',
             ],
         }) as Promise<ContractSupplement>;
     }

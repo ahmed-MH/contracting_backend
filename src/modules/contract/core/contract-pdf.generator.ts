@@ -10,6 +10,7 @@ import { ContractEarlyBooking } from '../early-booking/entities/contract-early-b
 import { ContractSpo } from '../spo/entities/contract-spo.entity';
 import { ContractCancellationRule } from '../cancellation/entities/contract-cancellation-rule.entity';
 import { Affiliate } from '../../affiliate/entities/affiliate.entity';
+import type { ContractExportPresentationContext } from './contract-export-presentation.service';
 
 export interface ContractPdfGeneratorModel {
     contract: Contract;
@@ -22,6 +23,7 @@ export interface ContractPdfGeneratorModel {
     earlyBookings: ContractEarlyBooking[];
     spos: ContractSpo[];
     cancellations: ContractCancellationRule[];
+    presentation?: ContractExportPresentationContext;
 }
 
 type TableCell = string | number | null | undefined;
@@ -63,6 +65,69 @@ export class ContractPDFGenerator {
     private readonly text = '#1E293B';
     private readonly maxMatrixPeriods = 7;
 
+    private readonly copy = {
+        en: {
+            hotelAgreement: 'HOTEL COMMERCIAL AGREEMENT',
+            agreementDetails: 'AGREEMENT DETAILS',
+            document: 'DOCUMENT',
+            season: 'SEASON',
+            currency: 'CURRENCY',
+            stayValidity: 'Stay validity',
+            rateBasis: 'Rate basis',
+            perPersonPerNight: 'Per person per night',
+            tourOperator: 'Tour operator',
+            parties: 'Contracting Parties',
+            hotelParty: 'Hotel party',
+            tourOperatorParty: 'Tour operator party',
+            tariff: 'Contractual Tariff',
+            supplements: 'Supplements',
+            reductions: 'Reductions',
+            monoparental: 'Monoparental',
+            specialOffers: 'Special Offers',
+            earlyBooking: 'Early Booking',
+            commercialRemarks: 'Commercial Remarks / Additional Conditions',
+            paymentTerms: 'Payment Terms',
+            cancellation: 'Cancellation',
+            generalConditions: 'General Conditions',
+            signatures: 'Acceptance and Signatures',
+            forHotel: 'For the hotel',
+            forTourOperator: 'For the tour operator',
+            place: 'Place',
+            date: 'Date',
+            stamp: 'Company stamp',
+        },
+        fr: {
+            hotelAgreement: 'CONTRAT HOTELIER COMMERCIAL',
+            agreementDetails: 'DETAILS DU CONTRAT',
+            document: 'DOCUMENT',
+            season: 'SAISON',
+            currency: 'DEVISE',
+            stayValidity: 'Validite sejour',
+            rateBasis: 'Base tarifaire',
+            perPersonPerNight: 'Par personne et par nuit',
+            tourOperator: 'Tour-operateur',
+            parties: 'Parties contractantes',
+            hotelParty: 'Partie hotel',
+            tourOperatorParty: 'Partie tour-operateur',
+            tariff: 'Tarif contractuel',
+            supplements: 'Supplements',
+            reductions: 'Reductions',
+            monoparental: 'Monoparental',
+            specialOffers: 'Offres speciales',
+            earlyBooking: 'Early booking',
+            commercialRemarks: 'Remarques commerciales / Conditions additionnelles',
+            paymentTerms: 'Conditions de paiement',
+            cancellation: 'Annulation',
+            generalConditions: 'Conditions generales',
+            signatures: 'Acceptation et signatures',
+            forHotel: "Pour l'hotel",
+            forTourOperator: 'Pour le tour-operateur',
+            place: 'Lieu',
+            date: 'Date',
+            stamp: 'Cachet',
+        },
+    } as const;
+
     async generate(model: ContractPdfGeneratorModel): Promise<Buffer> {
         const logoImage = await this.resolveLogoImage(model.hotel?.logoUrl);
 
@@ -91,6 +156,7 @@ export class ContractPDFGenerator {
 
     private drawDocument(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel, logoImage: Buffer | string | null): void {
         this.drawHeader(doc, model, logoImage);
+        this.drawFxNote(doc, model.presentation);
         this.drawParties(doc, model);
         this.drawRates(doc, model);
         this.drawSupplementRules(doc, model, '03');
@@ -98,14 +164,25 @@ export class ContractPDFGenerator {
         this.drawMonoparentalRules(doc, model, '05');
         this.drawSpoRules(doc, model, '06');
         this.drawEarlyBookingRules(doc, model, '07');
-        this.drawCommercialRemarks(doc, '08');
+        this.drawCommercialRemarks(doc, '08', model);
         this.drawPaymentTerms(doc, model, '09');
         this.drawCancellationRules(doc, model, '10');
-        this.drawGeneralConditions(doc, '11');
+        this.drawGeneralConditions(doc, '11', model);
         this.drawSignatures(doc, model);
     }
 
-    private drawHeader(doc: PDFKit.PDFDocument, { contract, hotel, selectedPartner }: ContractPdfGeneratorModel, logoImage: Buffer | string | null): void {
+    private lang(model?: ContractPdfGeneratorModel | ContractExportPresentationContext): 'fr' | 'en' {
+        const language = 'presentation' in (model ?? {}) ? (model as ContractPdfGeneratorModel).presentation?.language : (model as ContractExportPresentationContext | undefined)?.language;
+        return language === 'fr' ? 'fr' : 'en';
+    }
+
+    private tr(model: ContractPdfGeneratorModel | ContractExportPresentationContext | undefined, key: keyof typeof this.copy.en): string {
+        const language = this.lang(model);
+        return this.copy[language][key] ?? this.copy.en[key];
+    }
+
+    private drawHeader(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel, logoImage: Buffer | string | null): void {
+        const { contract, hotel, selectedPartner } = model;
         const topY = this.margin;
         const logoSize = 62;
         const metaWidth = 156;
@@ -119,7 +196,7 @@ export class ContractPDFGenerator {
         this.drawLogo(doc, hotel, this.margin + 14, topY + 15, logoSize, logoImage);
 
         doc.font('Helvetica-Bold').fontSize(7).fillColor(this.mint)
-            .text('HOTEL COMMERCIAL AGREEMENT', titleX, topY + 14, { width: titleWidth, characterSpacing: 1.3 });
+            .text(this.tr(model, 'hotelAgreement'), titleX, topY + 14, { width: titleWidth, characterSpacing: 1.3 });
         doc.font('Helvetica-Bold').fontSize(16).fillColor(this.navy)
             .text(String(contract.name || 'Seasonal Tariff Agreement').toUpperCase(), titleX, topY + 27, {
                 width: titleWidth,
@@ -133,26 +210,27 @@ export class ContractPDFGenerator {
         doc.save().rect(metaX, topY, metaWidth, 92).fill(this.light).strokeColor(this.border).stroke().restore();
         doc.save().rect(metaX, topY, metaWidth, 22).fill(this.navy).restore();
         doc.font('Helvetica-Bold').fontSize(7).fillColor('#FFFFFF')
-            .text('AGREEMENT DETAILS', metaX + 10, topY + 8, { width: metaWidth - 20, align: 'center', characterSpacing: 1 });
-        this.drawMetaLine(doc, metaX, topY + 31, 'DOCUMENT', this.publicReference(contract.reference));
-        this.drawMetaLine(doc, metaX, topY + 49, 'SEASON', contract.name || 'Current season');
-        this.drawMetaLine(doc, metaX, topY + 67, 'CURRENCY', contract.currency);
+            .text(this.tr(model, 'agreementDetails'), metaX + 10, topY + 8, { width: metaWidth - 20, align: 'center', characterSpacing: 1 });
+        this.drawMetaLine(doc, metaX, topY + 31, this.tr(model, 'document'), this.publicReference(contract.reference));
+        this.drawMetaLine(doc, metaX, topY + 49, this.tr(model, 'season'), contract.name || 'Current season');
+        this.drawMetaLine(doc, metaX, topY + 67, this.tr(model, 'currency'), contract.currency);
 
         doc.y = topY + 106;
         this.drawInfoStrip(doc, [
-            ['Stay validity', this.formatDateRange(contract.startDate, contract.endDate)],
-            ['Rate basis', 'Per person per night'],
-            ['Tour operator', selectedPartner.companyName],
+            [this.tr(model, 'stayValidity'), this.formatDateRange(contract.startDate, contract.endDate)],
+            [this.tr(model, 'rateBasis'), this.tr(model, 'perPersonPerNight')],
+            [this.tr(model, 'tourOperator'), selectedPartner.companyName],
         ]);
         doc.y += 8;
     }
 
-    private drawParties(doc: PDFKit.PDFDocument, { hotel, selectedPartner }: ContractPdfGeneratorModel): void {
-        this.drawSectionTitle(doc, '01', 'Contracting Parties', 76);
+    private drawParties(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel): void {
+        const { hotel, selectedPartner } = model;
+        this.drawSectionTitle(doc, '01', this.tr(model, 'parties'), 76);
 
         this.drawTwoCards(doc, [
             {
-                title: 'Hotel party',
+                title: this.tr(model, 'hotelParty'),
                 body: [
                     hotel?.fiscalName || hotel?.name || 'Hotel company',
                     hotel?.legalRepresentative ? `Authorized representative: ${hotel.legalRepresentative}` : 'Authorized representative: as per signed agreement',
@@ -161,15 +239,31 @@ export class ContractPDFGenerator {
                 ].filter((line): line is string => Boolean(line)).join('\n'),
             },
             {
-                title: 'Tour operator party',
+                title: this.tr(model, 'tourOperatorParty'),
                 body: this.partnerPartyText(selectedPartner),
             },
         ]);
         doc.y += 8;
     }
 
-    private drawRates(doc: PDFKit.PDFDocument, { contract, contractLines }: ContractPdfGeneratorModel): void {
-        this.drawSectionTitle(doc, '02', 'Contractual Tariff', 92);
+    private drawFxNote(doc: PDFKit.PDFDocument, presentation?: ContractExportPresentationContext): void {
+        if (!presentation || presentation.sourceCurrency === presentation.outputCurrency) return;
+
+        const note = presentation.language === 'fr'
+            ? `Converti depuis ${presentation.sourceCurrency} au taux de 1 ${presentation.sourceCurrency} = ${presentation.fx.rate.toFixed(6)} ${presentation.outputCurrency} le ${presentation.fx.rateDate}`
+            : `Converted from ${presentation.sourceCurrency} using rate 1 ${presentation.sourceCurrency} = ${presentation.fx.rate.toFixed(6)} ${presentation.outputCurrency} on ${presentation.fx.rateDate}`;
+
+        this.ensureSpace(doc, 25);
+        const y = doc.y;
+        doc.save().rect(this.margin, y, this.contentWidth, 18).fillAndStroke('#ECFDF5', this.mint).restore();
+        doc.font('Helvetica-Bold').fontSize(6.4).fillColor(this.text)
+            .text(note, this.margin + 8, y + 6, { width: this.contentWidth - 16 });
+        doc.y = y + 26;
+    }
+
+    private drawRates(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel): void {
+        const { contract, contractLines } = model;
+        this.drawSectionTitle(doc, '02', this.tr(model, 'tariff'), 92);
         this.drawTariffNote(doc, contract);
 
         const periods = [...(contract.periods ?? [])].sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
@@ -185,9 +279,8 @@ export class ContractPDFGenerator {
             lookup.set(
                 `${line.period.id}_${line.contractRoom.id}`,
                 (line.prices ?? [])
-                    .filter((price) => price.arrangement)
                     .map((price) => ({
-                        board: price.arrangement?.code || price.arrangement?.name || 'BASE',
+                        board: contract.baseArrangement?.code || contract.baseArrangement?.name || 'BASE',
                         amount: Number(price.amount) || 0,
                         minStay: price.minStay,
                         releaseDays: price.releaseDays,
@@ -228,40 +321,41 @@ export class ContractPDFGenerator {
         ];
     }
 
-    private drawCommercialRemarks(doc: PDFKit.PDFDocument, index: string): void {
-        this.drawSectionTitle(doc, index, 'Commercial Remarks / Additional Conditions', 72);
+    private drawCommercialRemarks(doc: PDFKit.PDFDocument, index: string, model?: ContractPdfGeneratorModel): void {
+        this.drawSectionTitle(doc, index, this.tr(model, 'commercialRemarks'), 72);
         this.drawFullCard(doc, 'Commercial remarks', this.numbered(this.commercialRemarkItems()), 58);
         doc.y += 8;
     }
 
     private drawPaymentTerms(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel, index: string): void {
-        this.drawSectionTitle(doc, index, 'Payment Terms', 72);
+        this.drawSectionTitle(doc, index, this.tr(model, 'paymentTerms'), 72);
         const paymentItems = this.paymentItems(model);
         this.drawFullCard(doc, 'Payment terms', this.numbered(paymentItems.length > 0 ? paymentItems : ['Payment terms to be confirmed by the parties.']), 58);
         doc.y += 8;
     }
 
-    private drawGeneralConditions(doc: PDFKit.PDFDocument, index: string): void {
-        this.drawSectionTitle(doc, index, 'General Conditions', 72);
+    private drawGeneralConditions(doc: PDFKit.PDFDocument, index: string, model?: ContractPdfGeneratorModel): void {
+        this.drawSectionTitle(doc, index, this.tr(model, 'generalConditions'), 72);
         this.drawFullCard(doc, 'General conditions', this.numbered(this.generalConditionItems()), 66);
         doc.y += 8;
     }
 
-    private drawSignatures(doc: PDFKit.PDFDocument, { hotel, selectedPartner }: ContractPdfGeneratorModel): void {
-        this.drawSectionTitle(doc, '12', 'Acceptance and Signatures', 136);
+    private drawSignatures(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel): void {
+        const { hotel, selectedPartner } = model;
+        this.drawSectionTitle(doc, '12', this.tr(model, 'signatures'), 136);
 
         const gap = 16;
         const cardWidth = (this.contentWidth - gap) / 2;
         const y = doc.y;
         const affiliateName = selectedPartner.companyName || 'Tour operator';
 
-        this.drawSignatureCard(doc, this.margin, y, cardWidth, 'For the hotel', hotel?.name ?? 'Hotel', hotel?.legalRepresentative || 'Authorized signatory');
-        this.drawSignatureCard(doc, this.margin + cardWidth + gap, y, cardWidth, 'For the tour operator', affiliateName, selectedPartner.representativeName || 'Authorized signatory');
+        this.drawSignatureCard(doc, this.margin, y, cardWidth, this.tr(model, 'forHotel'), hotel?.name ?? 'Hotel', hotel?.legalRepresentative || 'Authorized signatory');
+        this.drawSignatureCard(doc, this.margin + cardWidth + gap, y, cardWidth, this.tr(model, 'forTourOperator'), affiliateName, selectedPartner.representativeName || 'Authorized signatory');
         doc.y = y + 104;
 
         const boxY = doc.y;
         const third = this.contentWidth / 3;
-        ['Place', 'Date', 'Company stamp'].forEach((label, index) => {
+        [this.tr(model, 'place'), this.tr(model, 'date'), this.tr(model, 'stamp')].forEach((label, index) => {
             const x = this.margin + third * index;
             doc.save().rect(x, boxY, third, 34).strokeColor(this.border).stroke().restore();
             doc.font('Helvetica-Bold').fontSize(6.5).fillColor(this.slate)
@@ -339,8 +433,9 @@ export class ContractPDFGenerator {
         }
     }
 
-    private drawEarlyBookingRules(doc: PDFKit.PDFDocument, { contract, earlyBookings }: ContractPdfGeneratorModel, index: string): void {
-        this.drawSectionTitle(doc, index, 'Early Booking', 70);
+    private drawEarlyBookingRules(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel, index: string): void {
+        const { contract, earlyBookings } = model;
+        this.drawSectionTitle(doc, index, this.tr(model, 'earlyBooking'), 70);
         const rows = this.sortEarlyBookings(earlyBookings).map((offer) => [
             this.cleanEarlyBookingName(offer, contract.currency),
             this.earlyBookingPeriodValue(offer, null, contract.currency),
@@ -365,7 +460,8 @@ export class ContractPDFGenerator {
         doc.y += 5;
     }
 
-    private drawSpoRules(doc: PDFKit.PDFDocument, { contract, spos }: ContractPdfGeneratorModel, index: string): void {
+    private drawSpoRules(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel, index: string): void {
+        const { contract, spos } = model;
         const periods = this.sortedPeriods(contract.periods);
         const matrixRows: PeriodMatrixPdfRow[] = spos.map((spo) => {
             const applicablePeriods = this.resolveRulePeriods(periods, spo.applicablePeriods as any[]);
@@ -384,17 +480,19 @@ export class ContractPDFGenerator {
             };
         });
 
-        this.drawSectionTitle(doc, index, 'Special Offers', 70);
+        this.drawSectionTitle(doc, index, this.tr(model, 'specialOffers'), 70);
         this.renderPeriodMatrix(doc, null, ['Offer', 'Trigger / scope'], matrixRows, periods,
             'No special offer clause has been appended to this agreement.');
     }
 
-    private drawSupplementRules(doc: PDFKit.PDFDocument, { contract, supplements }: ContractPdfGeneratorModel, index: string): void {
+    private drawSupplementRules(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel, index: string): void {
+        const { contract, supplements } = model;
         const periods = this.sortedPeriods(contract.periods);
         const matrixRows: PeriodMatrixPdfRow[] = supplements.map((supplement) => {
             const applicablePeriods = this.resolveRulePeriods(periods, supplement.applicablePeriods as any[]);
             const name = `${supplement.name}${supplement.isMandatory ? ' (compulsory)' : ''}`;
             const scope = this.compactScope([
+                supplement.systemCode === 'MEAL_PLAN' ? this.mealPlanTarget(supplement) : null,
                 this.roomScope(supplement.applicableContractRooms),
                 this.ageRange(supplement.minAge, supplement.maxAge),
                 this.labelize(supplement.applicationType),
@@ -410,12 +508,13 @@ export class ContractPDFGenerator {
             };
         });
 
-        this.drawSectionTitle(doc, index, 'Supplements', 70);
+        this.drawSectionTitle(doc, index, this.tr(model, 'supplements'), 70);
         this.renderPeriodMatrix(doc, null, ['Supplement', 'Scope'], matrixRows, periods,
             'No supplement clause has been appended to this agreement.');
     }
 
-    private drawReductionRules(doc: PDFKit.PDFDocument, { contract, reductions }: ContractPdfGeneratorModel, index: string): void {
+    private drawReductionRules(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel, index: string): void {
+        const { contract, reductions } = model;
         const periods = this.sortedPeriods(contract.periods);
         const matrixRows: PeriodMatrixPdfRow[] = reductions.map((reduction) => {
             const applicablePeriods = this.resolveRulePeriods(periods, reduction.applicablePeriods as any[]);
@@ -435,12 +534,13 @@ export class ContractPDFGenerator {
             };
         });
 
-        this.drawSectionTitle(doc, index, 'Reductions', 70);
+        this.drawSectionTitle(doc, index, this.tr(model, 'reductions'), 70);
         this.renderPeriodMatrix(doc, null, ['Reduction', 'Pax'], matrixRows, periods,
             'No reduction clause has been appended to this agreement.');
     }
 
-    private drawMonoparentalRules(doc: PDFKit.PDFDocument, { contract, monoparentalRules }: ContractPdfGeneratorModel, index: string): void {
+    private drawMonoparentalRules(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel, index: string): void {
+        const { contract, monoparentalRules } = model;
         const periods = this.sortedPeriods(contract.periods);
         const matrixRows: PeriodMatrixPdfRow[] = monoparentalRules.map((rule) => {
             const applicablePeriods = this.resolveRulePeriods(periods, rule.applicablePeriods as any[]);
@@ -460,12 +560,13 @@ export class ContractPDFGenerator {
             };
         });
 
-        this.drawSectionTitle(doc, index, 'Monoparental', 70);
+        this.drawSectionTitle(doc, index, this.tr(model, 'monoparental'), 70);
         this.renderPeriodMatrix(doc, null, ['Rule', 'Occupancy / scope'], matrixRows, periods,
             'No monoparental clause has been appended to this agreement.');
     }
 
-    private drawCancellationRules(doc: PDFKit.PDFDocument, { contract, cancellations }: ContractPdfGeneratorModel, index: string): void {
+    private drawCancellationRules(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel, index: string): void {
+        const { contract, cancellations } = model;
         const periods = this.sortedPeriods(contract.periods);
         const rows = cancellations.map((rule) => {
             const applicablePeriods = this.resolveRulePeriods(periods, rule.applicablePeriods as any[]);
@@ -486,7 +587,7 @@ export class ContractPDFGenerator {
             ];
         });
 
-        this.drawSectionTitle(doc, index, 'Cancellation', 70);
+        this.drawSectionTitle(doc, index, this.tr(model, 'cancellation'), 70);
         this.renderRuleTable(doc, null, ['Cancellation window', 'Penalty', 'Conditions', 'Room scope'], rows,
             'Cancellation conditions are governed by the applicable operational policy.');
     }
@@ -532,8 +633,11 @@ export class ContractPDFGenerator {
     private drawTariffNote(doc: PDFKit.PDFDocument, contract: Contract): void {
         const y = doc.y;
         doc.save().rect(this.margin, y, this.contentWidth, 24).fillAndStroke(this.light, this.border).restore();
+        const basis = contract.baseArrangement
+            ? `${contract.baseArrangement.name} (${contract.baseArrangement.code})`
+            : 'the selected base board';
         doc.font('Helvetica').fontSize(7.2).fillColor(this.text)
-            .text(`Net contractual rates in ${contract.currency}. Amounts are per person per night unless an individual clause states otherwise.`, this.margin + 8, y + 7, {
+            .text(`Rates expressed on ${basis} basis in ${contract.currency}. Amounts are per person per night unless an individual clause states otherwise.`, this.margin + 8, y + 7, {
                 width: this.contentWidth - 16,
             });
         doc.y = y + 30;
@@ -950,6 +1054,12 @@ export class ContractPDFGenerator {
 
     private compactScope(parts: (string | null | undefined)[]): string {
         return parts.filter((part): part is string => Boolean(part && part.trim())).join(' | ');
+    }
+
+    private mealPlanTarget(supplement: ContractSupplement): string {
+        const arrangement = supplement.targetArrangement;
+        if (!arrangement) return 'Meal plan supplement';
+        return `Meal plan: ${arrangement.code || arrangement.name}`;
     }
 
     private formatTargets(rooms?: any[], periods?: any[]): string {

@@ -7,9 +7,11 @@ import { Period } from './core/entities/period.entity';
 import { ContractRoom } from './core/entities/contract-room.entity';
 import { ContractService } from './core/contract.service';
 import { ContractPdfService } from './core/contract-pdf.service';
+import { ContractExportPresentationService } from './core/contract-export-presentation.service';
 import { ContractController } from './core/contract.controller';
 import { ContractLine } from './core/entities/contract-line.entity';
 import { Price } from './core/entities/price.entity';
+import { ContractExportSnapshot } from './core/entities/contract-export-snapshot.entity';
 
 // --- SUPPLEMENT ---
 import { ContractSupplement } from './supplement/entities/contract-supplement.entity';
@@ -58,6 +60,7 @@ import { ContractCancellationController } from './cancellation/contract-cancella
 import { Affiliate } from '../affiliate/entities/affiliate.entity';
 import { RoomType } from '../hotel/entities/room-type.entity';
 import { Hotel } from '../hotel/entities/hotel.entity';
+import { ExchangeRate } from '../exchange-rates/entities/exchange-rate.entity';
 import { Arrangement } from '../hotel/entities/arrangement.entity';
 import { TemplateSupplement } from '../catalog/supplement/entities/template-supplement.entity';
 import { TemplateReduction } from '../catalog/reduction/entities/template-reduction.entity';
@@ -74,6 +77,7 @@ import { TemplateCancellationRule } from '../catalog/cancellation/entities/templ
             ContractRoom,
             ContractLine,
             Price,
+            ContractExportSnapshot,
             ContractSupplement,
             ContractSupplementRoom,
             ContractSupplementPeriod,
@@ -98,6 +102,7 @@ import { TemplateCancellationRule } from '../catalog/cancellation/entities/templ
             Affiliate,
             RoomType,
             Hotel,
+            ExchangeRate,
             Arrangement,
             TemplateSupplement,
             TemplateReduction,
@@ -119,6 +124,7 @@ import { TemplateCancellationRule } from '../catalog/cancellation/entities/templ
     providers: [
         ContractService,
         ContractPdfService,
+        ContractExportPresentationService,
         ContractSupplementService,
         ContractReductionService,
         ContractMonoparentalRuleService,

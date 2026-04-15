@@ -17,7 +17,7 @@ describe('ContractController activation check', () => {
         const service = {
             validateActivation: jest.fn().mockResolvedValue(validation),
         };
-        const controller = new ContractController(service as any);
+        const controller = new ContractController(service as any, {} as any);
         const req = { headers: { 'x-hotel-id': '7' } } as any;
 
         await expect(controller.validateActivation(req, 42)).resolves.toEqual(validation);

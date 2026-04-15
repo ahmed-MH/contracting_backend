@@ -4,10 +4,12 @@ import {
     Column,
     ManyToOne,
     OneToMany,
+    JoinColumn,
 } from 'typeorm';
 import { Contract } from '../../core/entities/contract.entity';
 import { ContractSupplementRoom } from './contract-supplement-room.entity';
 import { ContractSupplementPeriod } from './contract-supplement-period.entity';
+import { Arrangement } from '../../../hotel/entities/arrangement.entity';
 import {
     SupplementCalculationType,
     PricingModifierApplicationType,
@@ -60,6 +62,13 @@ export class ContractSupplement {
 
     @Column({ type: 'int', nullable: true })
     maxAge: number | null;
+
+    @ManyToOne(() => Arrangement, { nullable: true, onDelete: 'NO ACTION' })
+    @JoinColumn({ name: 'targetArrangementId' })
+    targetArrangement: Arrangement | null;
+
+    @Column({ type: 'int', nullable: true })
+    targetArrangementId: number | null;
 
     @ManyToOne(() => Contract, (contract) => contract.supplements, {
         onDelete: 'CASCADE',

@@ -1,5 +1,7 @@
-import { IsString, IsOptional, IsDateString, IsArray, IsInt, Length, IsEnum, IsNumber, Min, ValidateIf } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsArray, IsInt, Length, IsEnum, IsNumber, Min, ValidateIf, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { PaymentConditionType, PaymentMethodType } from '../../../../common/constants/enums';
+import { ContractPaymentPolicyDto } from './payment-policy.dto';
 
 export class UpdateContractDto {
     @IsString()
@@ -46,6 +48,16 @@ export class UpdateContractDto {
     @IsEnum(PaymentMethodType, { each: true })
     @IsOptional()
     paymentMethods?: PaymentMethodType[];
+
+    @ValidateNested()
+    @Type(() => ContractPaymentPolicyDto)
+    @IsOptional()
+    paymentPolicy?: ContractPaymentPolicyDto | null;
+
+    @IsInt()
+    @Min(1)
+    @IsOptional()
+    selectedHotelBankAccountId?: number | null;
 
     @ValidateIf((o: any) => o.baseArrangementId !== null)
     @IsInt()

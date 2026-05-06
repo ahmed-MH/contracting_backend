@@ -10,6 +10,8 @@ import { Period } from '../core/entities/period.entity';
 import { TemplateSupplement } from '../../catalog/supplement/entities/template-supplement.entity';
 import { UpdateContractSupplementDto } from './dto/update-contract-supplement.dto';
 import { Arrangement } from '../../hotel/entities/arrangement.entity';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class ContractSupplementService {
@@ -37,6 +39,7 @@ export class ContractSupplementService {
 
         @InjectRepository(Arrangement)
         private readonly arrangementRepo: Repository<Arrangement>,
+        private readonly auditService: AuditService,
     ) { }
 
     private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
@@ -117,6 +120,7 @@ export class ContractSupplementService {
         hotelId: number,
         contractId: number,
         templateId: number,
+        currentUser?: RequestUser,
     ): Promise<ContractSupplement> {
         const contract = await this.findContractOrThrow(hotelId, contractId);
 
@@ -182,6 +186,8 @@ export class ContractSupplementService {
             await this.csPeriodRepo.save(junctions);
         }
 
+        await this.touchContract(contract, currentUser);
+
         // Return with relations loaded
         return this.supplementRepo.findOne({
             where: { id: saved.id, contract: { id: contractId, hotelId } },
@@ -203,6 +209,7 @@ export class ContractSupplementService {
         contractId: number,
         id: number,
         dto: UpdateContractSupplementDto,
+        currentUser?: RequestUser,
     ): Promise<ContractSupplement> {
         const supplement = await this.findSupplementOrThrow(hotelId, contractId, id, [
             'applicableContractRooms',
@@ -311,6 +318,8 @@ export class ContractSupplementService {
             // If both are empty arrays → all periods deleted = all toggles OFF ✓
         }
 
+        await this.touchContractById(hotelId, contractId, currentUser);
+
         // Reload with fresh relations
         return this.supplementRepo.findOne({
             where: { id, contract: { id: contractId, hotelId } },
@@ -326,8 +335,20 @@ export class ContractSupplementService {
     }
 
     // Hard delete a contract supplement (junction rows cascade automatically)
-    async remove(hotelId: number, contractId: number, id: number): Promise<void> {
+    async remove(hotelId: number, contractId: number, id: number, currentUser?: RequestUser): Promise<void> {
         const supplement = await this.findSupplementOrThrow(hotelId, contractId, id);
         await this.supplementRepo.remove(supplement);
+        await this.touchContractById(hotelId, contractId, currentUser);
+    }
+
+    private async touchContractById(hotelId: number, contractId: number, currentUser?: RequestUser): Promise<void> {
+        const contract = await this.findContractOrThrow(hotelId, contractId);
+        await this.touchContract(contract, currentUser);
+    }
+
+    private async touchContract(contract: Contract, currentUser?: RequestUser): Promise<void> {
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(contract, actor);
+        await this.contractRepo.save(contract);
     }
 }

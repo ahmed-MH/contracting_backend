@@ -4,6 +4,8 @@ import { Not, Repository } from 'typeorm';
 import { ExchangeRate, ExchangeRateSource } from './entities/exchange-rate.entity';
 import { Hotel } from '../hotel/entities/hotel.entity';
 import { CreateExchangeRateDto, UpdateExchangeRateDto } from './dto/exchange-rate.dto';
+import { RequestUser } from '../../common/interfaces/request.interface';
+import { AuditService } from '../../common/audit/audit.service';
 
 @Injectable()
 export class ExchangeRateService {
@@ -13,11 +15,13 @@ export class ExchangeRateService {
         private readonly exchangeRateRepo: Repository<ExchangeRate>,
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,
+        private readonly auditService: AuditService,
     ) {}
 
-    async create(hotelId: number, createDto: CreateExchangeRateDto, updatedBy?: string | null): Promise<ExchangeRate> {
+    async create(hotelId: number, createDto: CreateExchangeRateDto, currentUser?: RequestUser): Promise<ExchangeRate> {
         const hotel = await this.hotelRepo.findOneBy({ id: hotelId });
         if (!hotel) throw new NotFoundException('Hotel introuvable');
+        const actor = await this.auditService.resolveActor(currentUser);
 
         const fromCurrency = this.normalizeCurrency(createDto.fromCurrency);
         const toCurrency = this.normalizeCurrency(createDto.toCurrency);
@@ -33,8 +37,9 @@ export class ExchangeRateService {
             hotelId,
             effectiveDate,
             source: createDto.source ?? ExchangeRateSource.MANUAL,
-            updatedBy: updatedBy ?? null,
+            updatedBy: this.auditService.legacyActorLabel(actor),
         } as Partial<ExchangeRate>);
+        this.auditService.applyCreateAudit(rate, actor);
 
         return this.exchangeRateRepo.save(rate);
     }
@@ -58,8 +63,9 @@ export class ExchangeRateService {
         return this.hydrateLegacyRate(rate, hotel?.defaultCurrency);
     }
 
-    async update(hotelId: number, id: number, updateDto: UpdateExchangeRateDto, updatedBy?: string | null): Promise<ExchangeRate> {
+    async update(hotelId: number, id: number, updateDto: UpdateExchangeRateDto, currentUser?: RequestUser): Promise<ExchangeRate> {
         const rate = await this.findOne(hotelId, id);
+        const actor = await this.auditService.resolveActor(currentUser);
 
         const fromCurrency = this.normalizeCurrency(updateDto.fromCurrency ?? rate.fromCurrency);
         const toCurrency = this.normalizeCurrency(updateDto.toCurrency ?? rate.toCurrency);
@@ -74,7 +80,8 @@ export class ExchangeRateService {
         rate.rate = nextRate;
         rate.effectiveDate = effectiveDate;
         if (updateDto.source) rate.source = updateDto.source;
-        rate.updatedBy = updatedBy ?? rate.updatedBy ?? null;
+        rate.updatedBy = this.auditService.legacyActorLabel(actor);
+        this.auditService.applyUpdateAudit(rate, actor);
 
         return this.exchangeRateRepo.save(rate);
     }

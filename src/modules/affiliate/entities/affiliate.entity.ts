@@ -1,7 +1,9 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, ManyToOne, JoinColumn, DeleteDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, ManyToOne, JoinColumn, DeleteDateColumn, OneToMany } from 'typeorm';
 import { AffiliateType } from '../../../common/constants/enums';
 import { Contract } from '../../contract/core/entities/contract.entity';
 import { Hotel } from '../../hotel/entities/hotel.entity';
+import { AuditableEntity } from '../../../common/audit/auditable.entity';
+import { AffiliateEmailSpo } from '../email-spo/entities/affiliate-email-spo.entity';
 
 export interface AffiliateEmail {
     label: string;
@@ -9,7 +11,7 @@ export interface AffiliateEmail {
 }
 
 @Entity()
-export class Affiliate {
+export class Affiliate extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 
@@ -67,6 +69,11 @@ export class Affiliate {
 
     @ManyToMany(() => Contract, (contract) => contract.affiliates)
     contracts: Contract[];
+
+    @OneToMany(() => AffiliateEmailSpo, (emailSpo) => emailSpo.affiliate, {
+        cascade: false,
+    })
+    emailSpos: AffiliateEmailSpo[];
 
     @DeleteDateColumn()
     deletedAt: Date;

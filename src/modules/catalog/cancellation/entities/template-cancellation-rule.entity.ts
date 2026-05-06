@@ -1,9 +1,10 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, DeleteDateColumn } from 'typeorm';
 import { Hotel } from '../../../hotel/entities/hotel.entity';
 import { CancellationPenaltyType } from '../../../../common/constants/enums';
+import { AuditableEntity } from '../../../../common/audit/auditable.entity';
 
 @Entity()
-export class TemplateCancellationRule {
+export class TemplateCancellationRule extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 

@@ -69,6 +69,9 @@ export class AuthService implements OnModuleInit {
         const payload = {
             sub: user.id,
             email: user.email,
+            firstName: user.firstName ?? null,
+            lastName: user.lastName ?? null,
+            displayName: [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || null,
             role: user.role,
             hotelIds: user.hotels?.map(h => h.id) || [],
             tenantId: user.tenantId || null
@@ -131,6 +134,9 @@ export class AuthService implements OnModuleInit {
         const payload = {
             sub: user.id,
             email: user.email,
+            firstName: user.firstName ?? null,
+            lastName: user.lastName ?? null,
+            displayName: [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || null,
             role: user.role,
             hotelIds: user.hotels?.map(h => h.id) || [],
             tenantId: user.tenantId || null

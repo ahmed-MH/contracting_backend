@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsOptional, Length, IsArray, ValidateNested, IsNumber, Min, Max, IsEmail } from 'class-validator';
+import { IsBoolean, IsInt, IsNotEmpty, IsString, IsOptional, Length, IsArray, ValidateNested, IsNumber, Min, Max, IsEmail, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class HotelEmailDto {
@@ -8,6 +8,54 @@ export class HotelEmailDto {
 
     @IsEmail()
     address: string;
+}
+
+export class HotelBankAccountDto {
+    @IsOptional()
+    @IsInt()
+    id?: number;
+
+    @IsString()
+    @IsNotEmpty()
+    label: string;
+
+    @IsOptional()
+    @IsString()
+    bankName?: string;
+
+    @IsOptional()
+    @IsString()
+    accountNumber?: string;
+
+    @IsOptional()
+    @IsString()
+    rib?: string;
+
+    @IsOptional()
+    @IsString()
+    iban?: string;
+
+    @IsOptional()
+    @IsString()
+    swiftCode?: string;
+
+    @IsOptional()
+    @IsString()
+    @Length(3, 3, { message: 'Currency must be a 3-letter ISO code (e.g. TND, EUR, USD)' })
+    currency?: string;
+
+    @IsOptional()
+    @IsString()
+    @Length(2, 2, { message: 'Country must be a 2-letter ISO code (e.g. TN, FR)' })
+    country?: string;
+
+    @IsOptional()
+    @IsBoolean()
+    isDefault?: boolean;
+
+    @IsOptional()
+    @IsBoolean()
+    active?: boolean;
 }
 
 export class CreateHotelDto {
@@ -23,6 +71,11 @@ export class CreateHotelDto {
     @IsOptional()
     @IsString()
     logoUrl?: string;
+
+    @IsOptional()
+    @IsString()
+    @Matches(/^#[0-9A-Fa-f]{6}$/, { message: 'preferredThemeColor must be a hex color like #0D9488' })
+    preferredThemeColor?: string;
 
     @IsOptional()
     @IsNumber()
@@ -78,6 +131,12 @@ export class CreateHotelDto {
     @IsOptional()
     @IsString()
     ibanCode?: string;
+
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => HotelBankAccountDto)
+    bankAccounts?: HotelBankAccountDto[];
 
     // ── Opérationnel ─────────────────────────────────────────────────
     @IsString()

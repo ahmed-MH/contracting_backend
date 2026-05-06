@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { Contract } from '../contract/core/entities/contract.entity';
 import { ContractLine } from '../contract/core/entities/contract-line.entity';
 import { Price } from '../contract/core/entities/price.entity';
 import { Promotion } from '../contract/core/entities/promotion.entity';
@@ -15,6 +16,8 @@ import { InitContractLineDto } from './dto/init-contract-line.dto';
 import { SetPriceDto } from './dto/set-price.dto';
 import { ManageLinePromosDto } from './dto/manage-line-promos.dto';
 import { SetAllotmentDto } from './dto/set-allotment.dto';
+import { RequestUser } from '../../common/interfaces/request.interface';
+import { AuditService } from '../../common/audit/audit.service';
 
 @Injectable()
 export class PricingService {
@@ -22,6 +25,8 @@ export class PricingService {
     constructor(
         @InjectRepository(ContractLine)
         private readonly lineRepo: Repository<ContractLine>,
+        @InjectRepository(Contract)
+        private readonly contractRepo: Repository<Contract>,
 
         @InjectRepository(Price)
         private readonly priceRepo: Repository<Price>,
@@ -37,11 +42,12 @@ export class PricingService {
 
         @InjectRepository(Arrangement)
         private readonly arrangementRepo: Repository<Arrangement>,
+        private readonly auditService: AuditService,
     ) { }
 
     // ─── Initialize a Contract Line (Period × Room intersection) ──────
 
-    async initContractLine(hotelId: number, dto: InitContractLineDto): Promise<ContractLine> {
+    async initContractLine(hotelId: number, dto: InitContractLineDto, currentUser?: RequestUser): Promise<ContractLine> {
         // Idempotent: return existing line if already created
         const existing = await this.lineRepo.findOne({
             where: {
@@ -85,14 +91,17 @@ export class PricingService {
         }
 
         const line = this.lineRepo.create({ period, contractRoom });
-        return this.lineRepo.save(line);
+        const savedLine = await this.lineRepo.save(line);
+        await this.touchContract(period.contract, currentUser);
+        return savedLine;
     }
 
     // ─── Set / Update a Price (upsert by line + arrangement) ──────────
 
-    async setPrice(hotelId: number, dto: SetPriceDto): Promise<Price> {
+    async setPrice(hotelId: number, dto: SetPriceDto, currentUser?: RequestUser): Promise<Price> {
         const line = await this.lineRepo.findOne({
-            where: { id: dto.contractLineId, period: { contract: { hotelId } } }
+            where: { id: dto.contractLineId, period: { contract: { hotelId } } },
+            relations: ['period', 'period.contract'],
         });
         if (!line) {
             throw new NotFoundException(`ContractLine #${dto.contractLineId} not found or does not belong to hotel #${hotelId}`);
@@ -126,15 +135,17 @@ export class PricingService {
             });
         }
 
-        return this.priceRepo.save(price);
+        const savedPrice = await this.priceRepo.save(price);
+        await this.touchContract(line.period.contract, currentUser);
+        return savedPrice;
     }
 
     // ─── Manage Promotions on a Line (full replacement) ───────────────
 
-    async setLinePromotions(hotelId: number, dto: ManageLinePromosDto): Promise<ContractLine> {
+    async setLinePromotions(hotelId: number, dto: ManageLinePromosDto, currentUser?: RequestUser): Promise<ContractLine> {
         const line = await this.lineRepo.findOne({
             where: { id: dto.contractLineId, period: { contract: { hotelId } } },
-            relations: ['promotions'],
+            relations: ['promotions', 'period', 'period.contract'],
         });
 
         if (!line) {
@@ -153,14 +164,17 @@ export class PricingService {
 
         // Full replacement of the ManyToMany relation
         line.promotions = promotions;
-        return this.lineRepo.save(line);
+        const savedLine = await this.lineRepo.save(line);
+        await this.touchContract(line.period.contract, currentUser);
+        return savedLine;
     }
 
     // ─── Set / Update Allotment (now stored as a column on ContractLine) ─────
 
-    async setAllotment(hotelId: number, dto: SetAllotmentDto): Promise<ContractLine> {
+    async setAllotment(hotelId: number, dto: SetAllotmentDto, currentUser?: RequestUser): Promise<ContractLine> {
         const line = await this.lineRepo.findOne({
             where: { id: dto.contractLineId, period: { contract: { hotelId } } },
+            relations: ['period', 'period.contract'],
         });
 
         if (!line) {
@@ -168,7 +182,9 @@ export class PricingService {
         }
 
         line.allotment = dto.quantity;
-        return this.lineRepo.save(line);
+        const savedLine = await this.lineRepo.save(line);
+        await this.touchContract(line.period.contract, currentUser);
+        return savedLine;
     }
 
     // ─── Get full pricing matrix for a contract ───────────────────────
@@ -199,5 +215,11 @@ export class PricingService {
         }
 
         return lines;
+    }
+
+    private async touchContract(contract: Contract, currentUser?: RequestUser): Promise<void> {
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(contract, actor);
+        await this.contractRepo.save(contract);
     }
 }

@@ -1,22 +1,32 @@
 import 'reflect-metadata';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { ValidationPipe, ClassSerializerInterceptor } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // ─── Global API prefix (/api) — excludes root health check
   app.setGlobalPrefix('api', { exclude: ['health'] });
+  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
 
   // ─── CORS : autorise le frontend (Docker ou dev local)
   app.enableCors({
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-hotel-id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-hotel-id', 'x-api-key'],
+    exposedHeaders: [
+      'x-integration-endpoint-code',
+      'x-integration-source',
+      'x-integration-duration-ms',
+      'x-integration-request-id',
+      'x-integration-error-code',
+    ],
   });
 
   // ─── Strict DTO validation via class-validator

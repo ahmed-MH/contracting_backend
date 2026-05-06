@@ -1,5 +1,5 @@
-import { IsNumber, IsNotEmpty, IsDateString, IsOptional, ValidateNested, IsArray, IsEnum, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsNumber, IsNotEmpty, IsDateString, IsOptional, ValidateNested, IsArray, IsEnum, Min, IsBoolean, IsString } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 export enum OccupantType {
     ADULT = 'ADULT',
@@ -27,6 +27,10 @@ export class RoomingItemDto {
     @IsNotEmpty()
     roomId: number;
 
+    @IsNumber()
+    @IsOptional()
+    boardTypeId?: number;
+
     @IsArray()
     @ValidateNested({ each: true })
     @Type(() => OccupantDto)
@@ -41,7 +45,11 @@ export class SimulationRequestDto {
 
     @IsNumber()
     @IsNotEmpty()
-    boardTypeId: number;
+    affiliateId: number;
+
+    @IsNumber()
+    @IsOptional()
+    boardTypeId?: number;
 
     @IsDateString()
     @IsNotEmpty()
@@ -54,6 +62,15 @@ export class SimulationRequestDto {
     @IsDateString()
     @IsOptional()
     bookingDate?: string;
+
+    @IsOptional()
+    @Transform(({ value }) => value === true || value === 'true')
+    @IsBoolean()
+    includeInactive?: boolean;
+
+    @IsString()
+    @IsOptional()
+    inactiveOverrideReason?: string;
 
     @IsArray()
     @ValidateNested({ each: true })

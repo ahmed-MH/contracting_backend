@@ -15,7 +15,9 @@ import { ImportMonoparentalRuleDto } from './dto/import-monoparental-rule.dto';
 import { UpdateContractMonoparentalRuleDto } from './dto/update-contract-monoparental-rule.dto';
 
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { UserRole } from '../../../common/constants/enums';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('contracts/:contractId/monoparental-rules')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -45,11 +47,13 @@ export class ContractMonoparentalRuleController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Body() dto: ImportMonoparentalRuleDto,
+        @CurrentUser() user?: RequestUser,
     ) {
         return this.monoparentalService.importFromTemplate(
             this.getHotelId(req),
             contractId,
             dto.templateId,
+            user,
         );
     }
 
@@ -59,8 +63,9 @@ export class ContractMonoparentalRuleController {
         @Param('contractId', ParseIntPipe) contractId: number,
         @Param('ruleId', ParseIntPipe) ruleId: number,
         @Body() dto: UpdateContractMonoparentalRuleDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.monoparentalService.update(this.getHotelId(req), contractId, ruleId, dto);
+        return this.monoparentalService.update(this.getHotelId(req), contractId, ruleId, dto, user);
     }
 
     @Delete(':ruleId')
@@ -68,7 +73,8 @@ export class ContractMonoparentalRuleController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Param('ruleId', ParseIntPipe) ruleId: number,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.monoparentalService.remove(this.getHotelId(req), contractId, ruleId);
+        return this.monoparentalService.remove(this.getHotelId(req), contractId, ruleId, user);
     }
 }

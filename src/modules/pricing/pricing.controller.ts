@@ -6,7 +6,9 @@ import { ManageLinePromosDto } from './dto/manage-line-promos.dto';
 import { SetAllotmentDto } from './dto/set-allotment.dto';
 
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
+import { RequestUser } from '../../common/interfaces/request.interface';
 
 @Controller('pricing')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -15,26 +17,26 @@ export class PricingController {
 
     // Initialize a contract line (Period × Room intersection)
     @Post('lines')
-    initContractLine(@Headers('x-hotel-id') hotelId: string, @Body() dto: InitContractLineDto) {
-        return this.pricingService.initContractLine(parseInt(hotelId, 10), dto);
+    initContractLine(@Headers('x-hotel-id') hotelId: string, @Body() dto: InitContractLineDto, @CurrentUser() user?: RequestUser) {
+        return this.pricingService.initContractLine(parseInt(hotelId, 10), dto, user);
     }
 
     // Set or update a price for a line × arrangement pair
     @Post('prices')
-    setPrice(@Headers('x-hotel-id') hotelId: string, @Body() dto: SetPriceDto) {
-        return this.pricingService.setPrice(parseInt(hotelId, 10), dto);
+    setPrice(@Headers('x-hotel-id') hotelId: string, @Body() dto: SetPriceDto, @CurrentUser() user?: RequestUser) {
+        return this.pricingService.setPrice(parseInt(hotelId, 10), dto, user);
     }
 
     // Replace the promotions assigned to a contract line
     @Post('promotions')
-    setLinePromotions(@Headers('x-hotel-id') hotelId: string, @Body() dto: ManageLinePromosDto) {
-        return this.pricingService.setLinePromotions(parseInt(hotelId, 10), dto);
+    setLinePromotions(@Headers('x-hotel-id') hotelId: string, @Body() dto: ManageLinePromosDto, @CurrentUser() user?: RequestUser) {
+        return this.pricingService.setLinePromotions(parseInt(hotelId, 10), dto, user);
     }
 
     // Set or update the allotment for a contract line
     @Post('allotments')
-    setAllotment(@Headers('x-hotel-id') hotelId: string, @Body() dto: SetAllotmentDto) {
-        return this.pricingService.setAllotment(parseInt(hotelId, 10), dto);
+    setAllotment(@Headers('x-hotel-id') hotelId: string, @Body() dto: SetAllotmentDto, @CurrentUser() user?: RequestUser) {
+        return this.pricingService.setAllotment(parseInt(hotelId, 10), dto, user);
     }
 
     // Get the full pricing matrix for a contract

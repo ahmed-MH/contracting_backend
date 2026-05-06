@@ -5,7 +5,8 @@ import { CreateArrangementDto } from './dto/create-arrangement.dto';
 import { UpdateArrangementDto } from './dto/update-arrangement.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/constants/enums';
-import { Request } from 'express';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../common/interfaces/request.interface';
 
 @Controller('hotel')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -21,8 +22,8 @@ export class ArrangementController {
     }
 
     @Post('arrangements')
-    createArrangement(@Req() req: AuthenticatedRequest, @Body() dto: CreateArrangementDto) {
-        return this.arrangementService.createArrangement(this.getHotelId(req), dto);
+    createArrangement(@Req() req: AuthenticatedRequest, @Body() dto: CreateArrangementDto, @CurrentUser() user?: RequestUser) {
+        return this.arrangementService.createArrangement(this.getHotelId(req), dto, user);
     }
 
     @Get('arrangements')
@@ -40,8 +41,9 @@ export class ArrangementController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateArrangementDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.arrangementService.updateArrangement(this.getHotelId(req), id, dto);
+        return this.arrangementService.updateArrangement(this.getHotelId(req), id, dto, user);
     }
 
     @Delete('arrangements/:id')

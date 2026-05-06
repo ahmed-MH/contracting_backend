@@ -5,6 +5,8 @@ import { RoomType } from './entities/room-type.entity';
 import { Hotel } from './entities/hotel.entity';
 import { CreateRoomTypeDto } from './dto/create-room-type.dto';
 import { UpdateRoomTypeDto } from './dto/update-room-type.dto';
+import { RequestUser } from '../../common/interfaces/request.interface';
+import { AuditService } from '../../common/audit/audit.service';
 
 @Injectable()
 export class RoomTypeService {
@@ -14,6 +16,7 @@ export class RoomTypeService {
         private readonly roomTypeRepo: Repository<RoomType>,
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,
+        private readonly auditService: AuditService,
     ) { }
 
     private validateOccupancyRanges(dto: Partial<CreateRoomTypeDto>): void {
@@ -28,13 +31,15 @@ export class RoomTypeService {
         }
     }
 
-    async createRoomType(hotelId: number, dto: CreateRoomTypeDto): Promise<RoomType> {
+    async createRoomType(hotelId: number, dto: CreateRoomTypeDto, currentUser?: RequestUser): Promise<RoomType> {
         this.validateOccupancyRanges(dto);
         const hotel = await this.hotelRepo.findOne({ where: { id: hotelId } });
         if (!hotel) {
             throw new NotFoundException(`Hotel #${hotelId} not found`);
         }
         const roomType = this.roomTypeRepo.create({ ...dto, hotel });
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyCreateAudit(roomType, actor);
         return this.roomTypeRepo.save(roomType);
     }
 
@@ -49,7 +54,7 @@ export class RoomTypeService {
         });
     }
 
-    async updateRoomType(hotelId: number, id: number, dto: UpdateRoomTypeDto): Promise<RoomType> {
+    async updateRoomType(hotelId: number, id: number, dto: UpdateRoomTypeDto, currentUser?: RequestUser): Promise<RoomType> {
         this.validateOccupancyRanges(dto);
         const room = await this.roomTypeRepo.findOne({ where: { id, hotelId } });
         if (!room) {
@@ -68,6 +73,8 @@ export class RoomTypeService {
         if (room.minChildren > room.maxChildren) {
             throw new BadRequestException('minChildren cannot be greater than maxChildren after merge');
         }
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(room, actor);
         return this.roomTypeRepo.save(room);
     }
 

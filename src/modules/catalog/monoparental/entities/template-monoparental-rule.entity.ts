@@ -7,9 +7,10 @@ import {
 } from 'typeorm';
 import { Hotel } from '../../../hotel/entities/hotel.entity';
 import { BaseRateType, ChildSurchargeBase } from '../../../../common/constants/enums';
+import { AuditableEntity } from '../../../../common/audit/auditable.entity';
 
 @Entity()
-export class TemplateMonoparentalRule {
+export class TemplateMonoparentalRule extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 

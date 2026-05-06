@@ -6,7 +6,8 @@ import { UpdateTemplateSpoDto } from './dto/update-template-spo.dto';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/enums';
-import { Request } from 'express';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('hotel')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -38,8 +39,9 @@ export class TemplateSpoController {
     createTemplateSpo(
         @Req() req: AuthenticatedRequest,
         @Body() dto: CreateTemplateSpoDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.templateSpoService.createTemplateSpo(this.getHotelId(req), dto);
+        return this.templateSpoService.createTemplateSpo(this.getHotelId(req), dto, user);
     }
 
     @Patch('spos/:id')
@@ -47,8 +49,9 @@ export class TemplateSpoController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateTemplateSpoDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.templateSpoService.updateTemplateSpo(this.getHotelId(req), id, dto);
+        return this.templateSpoService.updateTemplateSpo(this.getHotelId(req), id, dto, user);
     }
 
     @Delete('spos/:id')

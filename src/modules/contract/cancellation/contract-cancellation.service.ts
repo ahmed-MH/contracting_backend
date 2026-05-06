@@ -13,6 +13,8 @@ import {
     UpdateContractCancellationRuleDto,
     ImportCancellationRuleDto,
 } from './dto/contract-cancellation.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class ContractCancellationService {
@@ -37,6 +39,7 @@ export class ContractCancellationService {
 
         @InjectRepository(Contract)
         private readonly contractRepo: Repository<Contract>,
+        private readonly auditService: AuditService,
     ) { }
 
     private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
@@ -109,9 +112,9 @@ export class ContractCancellationService {
     }
 
     // ─── CREATE ───────────────────────────────────────────────────────
-    async create(hotelId: number, contractId: number, dto: CreateContractCancellationRuleDto): Promise<ContractCancellationRule> {
+    async create(hotelId: number, contractId: number, dto: CreateContractCancellationRuleDto, currentUser?: RequestUser): Promise<ContractCancellationRule> {
         const { contractRoomIds, periodIds, ...ruleData } = dto;
-        await this.findContractOrThrow(hotelId, contractId);
+        const contract = await this.findContractOrThrow(hotelId, contractId);
         const rooms = contractRoomIds?.length
             ? await this.findContractRoomsOrThrow(hotelId, contractId, contractRoomIds)
             : [];
@@ -136,11 +139,13 @@ export class ContractCancellationService {
             await this.periodRepo.save(periodJunctions);
         }
 
+        await this.touchContract(contract, currentUser);
+
         return savedRule;
     }
 
     // ─── UPDATE ───────────────────────────────────────────────────────
-    async update(hotelId: number, contractId: number, id: number, dto: UpdateContractCancellationRuleDto): Promise<ContractCancellationRule> {
+    async update(hotelId: number, contractId: number, id: number, dto: UpdateContractCancellationRuleDto, currentUser?: RequestUser): Promise<ContractCancellationRule> {
         const rule = await this.findRuleOrThrow(hotelId, contractId, id, [
             'applicablePeriods',
             'applicableRooms',
@@ -202,6 +207,8 @@ export class ContractCancellationService {
         }
 
         // ── Reload with fresh relations ────────────────────────────────
+        await this.touchContractById(hotelId, contractId, currentUser);
+
         return this.ruleRepo.findOne({
             where: { id, contract: { id: contractId, hotelId } },
             relations: [
@@ -215,8 +222,8 @@ export class ContractCancellationService {
     }
 
     // ─── IMPORT ───────────────────────────────────────────────────────
-    async importFromTemplate(hotelId: number, contractId: number, dto: ImportCancellationRuleDto): Promise<ContractCancellationRule> {
-        await this.findContractOrThrow(hotelId, contractId);
+    async importFromTemplate(hotelId: number, contractId: number, dto: ImportCancellationRuleDto, currentUser?: RequestUser): Promise<ContractCancellationRule> {
+        const contract = await this.findContractOrThrow(hotelId, contractId);
 
         const template = await this.templateRepo.findOne({ where: { id: dto.templateId, hotelId } });
         if (!template) throw new NotFoundException(`TemplateCancellationRule #${dto.templateId} not found in hotel #${hotelId}`);
@@ -237,13 +244,26 @@ export class ContractCancellationService {
         const periods = await this.contractPeriodRepo.find({ where: { contract: { id: contractId, hotelId } } });
         const periodJunctions = periods.map(period => this.periodRepo.create({ contractCancellationRule: savedRule, period }));
         await this.periodRepo.save(periodJunctions);
+        await this.touchContract(contract, currentUser);
 
         return savedRule;
     }
 
     // ─── DELETE ───────────────────────────────────────────────────────
-    async delete(hotelId: number, contractId: number, id: number): Promise<void> {
+    async delete(hotelId: number, contractId: number, id: number, currentUser?: RequestUser): Promise<void> {
         const rule = await this.findRuleOrThrow(hotelId, contractId, id);
         await this.ruleRepo.remove(rule);
+        await this.touchContractById(hotelId, contractId, currentUser);
+    }
+
+    private async touchContractById(hotelId: number, contractId: number, currentUser?: RequestUser): Promise<void> {
+        const contract = await this.findContractOrThrow(hotelId, contractId);
+        await this.touchContract(contract, currentUser);
+    }
+
+    private async touchContract(contract: Contract, currentUser?: RequestUser): Promise<void> {
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(contract, actor);
+        await this.contractRepo.save(contract);
     }
 }

@@ -19,13 +19,32 @@ export enum AffiliateType {
 }
 
 export enum PaymentConditionType {
-    DEPOSIT = 'DEPOSIT',
+    FULL_PREPAYMENT = 'FULL_PREPAYMENT',
+    PARTIAL_DEPOSIT = 'PARTIAL_DEPOSIT',
+    CREDIT_DAYS_FROM_INVOICE = 'CREDIT_DAYS_FROM_INVOICE',
+    PAYMENT_ON_ARRIVAL = 'PAYMENT_ON_ARRIVAL',
+    PAYMENT_ON_DEPARTURE = 'PAYMENT_ON_DEPARTURE',
+    CUSTOM = 'CUSTOM',
+    // Legacy value accepted for backward compatibility. New writes use FULL_PREPAYMENT.
     PREPAYMENT_100 = 'PREPAYMENT_100',
+    DEPOSIT = 'DEPOSIT',
 }
 
 export enum PaymentMethodType {
     BANK_TRANSFER = 'BANK_TRANSFER',
+    SWIFT_TRANSFER = 'SWIFT_TRANSFER',
     BANK_CHECK = 'BANK_CHECK',
+    BANK_DRAFT = 'BANK_DRAFT',
+    CASH = 'CASH',
+    CREDIT_CARD = 'CREDIT_CARD',
+    PAYMENT_GATEWAY = 'PAYMENT_GATEWAY',
+    OTHER = 'OTHER',
+}
+
+export enum ContractMarketScope {
+    INTERNATIONAL = 'INTERNATIONAL',
+    NATIONAL = 'NATIONAL',
+    MIXED = 'MIXED',
 }
 
 export enum AuthType {
@@ -101,6 +120,7 @@ export enum SpoConditionType {
     HONEYMOONER = 'HONEYMOONER',
     EARLY_BIRD = 'EARLY_BIRD',
     LONG_STAY = 'LONG_STAY',
+    AGE = 'AGE',
     NONE = 'NONE'
 }
 
@@ -113,15 +133,73 @@ export enum SpoBenefitType {
     KIDS_GO_FREE = 'KIDS_GO_FREE'
 }
 
+export enum AffiliateEmailSpoStackMode {
+    ROLLING = 'ROLLING',
+    CUMULATIVE = 'CUMULATIVE',
+}
+
+export enum AffiliateEmailSpoApplicationStep {
+    AFTER_BASE_RATE = 'AFTER_BASE_RATE',
+    AFTER_BOARD_SUPPLEMENT = 'AFTER_BOARD_SUPPLEMENT',
+    AFTER_SUPPLEMENT = 'AFTER_SUPPLEMENT',
+    AFTER_REDUCTION = 'AFTER_REDUCTION',
+    AFTER_MONOPARENTAL = 'AFTER_MONOPARENTAL',
+    AFTER_EARLY_BOOKING = 'AFTER_EARLY_BOOKING',
+    AFTER_CONTRACT_SPO = 'AFTER_CONTRACT_SPO',
+}
+
+export enum AffiliateEmailSpoStatus {
+    ACTIVE = 'ACTIVE',
+    INACTIVE = 'INACTIVE',
+}
+
 export enum CancellationPenaltyType {
     NIGHTS = 'NIGHTS',
     PERCENTAGE = 'PERCENTAGE',
     FIXED_AMOUNT = 'FIXED_AMOUNT',
 }
 
+export enum IntegrationApiUserStatus {
+    ACTIVE = 'ACTIVE',
+    INACTIVE = 'INACTIVE',
+}
+
+export enum IntegrationApiKeyStatus {
+    ACTIVE = 'ACTIVE',
+    REVOKED = 'REVOKED',
+    EXPIRED = 'EXPIRED',
+}
+
+export enum IntegrationApiKeyEnvironment {
+    TEST = 'TEST',
+    PRODUCTION = 'PRODUCTION',
+}
+
+export enum IntegrationEndpointStatus {
+    ACTIVE = 'ACTIVE',
+    INACTIVE = 'INACTIVE',
+}
+
+export enum IntegrationPermission {
+    RESERVATIONS_QUOTE = 'RESERVATIONS_QUOTE',
+}
+
+export enum IntegrationUsageLogSource {
+    PUBLIC_API = 'PUBLIC_API',
+    PLAYGROUND = 'PLAYGROUND',
+}
+
+export enum IntegrationAlertSeverity {
+    INFO = 'INFO',
+    WARNING = 'WARNING',
+    CRITICAL = 'CRITICAL',
+}
+
 // ─── Proforma Invoice ────────────────────────────────────────────────
 
 export enum ProformaInvoiceStatus {
+    DRAFT = 'DRAFT',
+    ISSUED = 'ISSUED',
     GENERATED = 'GENERATED',
     CANCELLED = 'CANCELLED',
 }

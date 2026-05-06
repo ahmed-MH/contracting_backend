@@ -4,6 +4,9 @@ import { UserRole } from '../constants/enums';
 export interface RequestUser {
     id: number;
     email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    displayName?: string | null;
     role: UserRole;
     hotelIds: number[];
     tenantId: number | null;

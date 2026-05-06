@@ -6,6 +6,8 @@ import { CreateTemplateEarlyBookingDto } from './dto/create-template-early-booki
 import { UpdateTemplateEarlyBookingDto } from './dto/update-template-early-booking.dto';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { PageDto } from '../../../common/dto/page.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class TemplateEarlyBookingService {
@@ -13,6 +15,7 @@ export class TemplateEarlyBookingService {
     constructor(
         @InjectRepository(TemplateEarlyBooking)
         private readonly templateEarlyBookingRepo: Repository<TemplateEarlyBooking>,
+        private readonly auditService: AuditService,
     ) { }
 
     async findAllTemplateEarlyBookings(
@@ -46,11 +49,14 @@ export class TemplateEarlyBookingService {
     async createTemplateEarlyBooking(
         hotelId: number,
         dto: CreateTemplateEarlyBookingDto,
+        currentUser?: RequestUser,
     ): Promise<TemplateEarlyBooking> {
         const eb = this.templateEarlyBookingRepo.create({
             ...dto,
             hotel: { id: hotelId },
         });
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyCreateAudit(eb, actor);
         return this.templateEarlyBookingRepo.save(eb);
     }
 
@@ -58,6 +64,7 @@ export class TemplateEarlyBookingService {
         hotelId: number,
         id: number,
         dto: UpdateTemplateEarlyBookingDto,
+        currentUser?: RequestUser,
     ): Promise<TemplateEarlyBooking> {
         const eb = await this.templateEarlyBookingRepo.findOne({
             where: { id, hotel: { id: hotelId } },
@@ -66,6 +73,8 @@ export class TemplateEarlyBookingService {
             throw new NotFoundException(`Early Booking #${id} not found in hotel #${hotelId}`);
         }
         Object.assign(eb, dto);
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(eb, actor);
         return this.templateEarlyBookingRepo.save(eb);
     }
 

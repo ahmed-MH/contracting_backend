@@ -1,9 +1,10 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, Unique, DeleteDateColumn } from 'typeorm';
 import { Hotel } from './hotel.entity';
+import { AuditableEntity } from '../../../common/audit/auditable.entity';
 
 @Entity()
 @Unique('UQ_ARRANGEMENT_CODE_HOTEL', ['code', 'hotelId'])
-export class Arrangement {
+export class Arrangement extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 

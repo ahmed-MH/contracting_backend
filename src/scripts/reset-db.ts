@@ -48,6 +48,7 @@ import {
 import { AffiliateService } from '../modules/affiliate/affiliate.service';
 import { CreateAffiliateDto } from '../modules/affiliate/dto/create-affiliate.dto';
 import { ExchangeRateSource } from '../modules/exchange-rates/entities/exchange-rate.entity';
+import { RequestUser } from '../common/interfaces/request.interface';
 
 import { TemplateSupplement } from '../modules/catalog/supplement/entities/template-supplement.entity';
 import { TemplateReduction } from '../modules/catalog/reduction/entities/template-reduction.entity';
@@ -98,7 +99,14 @@ async function resetDb() {
             name: 'Marriott Tunisia',
             isActive: true,
         });
-        const tenantContext = { tenantId: tenant.id };
+        const tenantContext: RequestUser = {
+            id: 0,
+            email: 'system@pricify.local',
+            displayName: 'System Seed',
+            role: UserRole.ADMIN,
+            hotelIds: [],
+            tenantId: tenant.id,
+        };
         console.log(`Tenant "${tenant.name}" created successfully! (ID: ${tenant.id})`);
 
         // 1. Hotel

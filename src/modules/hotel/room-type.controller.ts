@@ -5,7 +5,8 @@ import { CreateRoomTypeDto } from './dto/create-room-type.dto';
 import { UpdateRoomTypeDto } from './dto/update-room-type.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/constants/enums';
-import { Request } from 'express';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../common/interfaces/request.interface';
 
 @Controller('hotel')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -21,8 +22,8 @@ export class RoomTypeController {
     }
 
     @Post('room-types')
-    createRoomType(@Req() req: AuthenticatedRequest, @Body() dto: CreateRoomTypeDto) {
-        return this.roomTypeService.createRoomType(this.getHotelId(req), dto);
+    createRoomType(@Req() req: AuthenticatedRequest, @Body() dto: CreateRoomTypeDto, @CurrentUser() user?: RequestUser) {
+        return this.roomTypeService.createRoomType(this.getHotelId(req), dto, user);
     }
 
     @Get('room-types')
@@ -40,8 +41,9 @@ export class RoomTypeController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateRoomTypeDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.roomTypeService.updateRoomType(this.getHotelId(req), id, dto);
+        return this.roomTypeService.updateRoomType(this.getHotelId(req), id, dto, user);
     }
 
     @Delete('room-types/:id')

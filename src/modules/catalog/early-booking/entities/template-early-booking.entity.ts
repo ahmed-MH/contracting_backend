@@ -8,9 +8,10 @@ import {
 } from 'typeorm';
 import { Hotel } from '../../../hotel/entities/hotel.entity';
 import { ReductionCalculationType, PricingModifierApplicationType } from '../../../../common/constants/enums';
+import { AuditableEntity } from '../../../../common/audit/auditable.entity';
 
 @Entity('template_early_booking')
-export class TemplateEarlyBooking {
+export class TemplateEarlyBooking extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 

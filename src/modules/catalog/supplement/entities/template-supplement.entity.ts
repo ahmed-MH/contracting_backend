@@ -11,9 +11,10 @@ import {
     PricingModifierApplicationType,
     SupplementSystemCode,
 } from '../../../../common/constants/enums';
+import { AuditableEntity } from '../../../../common/audit/auditable.entity';
 
 @Entity()
-export class TemplateSupplement {
+export class TemplateSupplement extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 

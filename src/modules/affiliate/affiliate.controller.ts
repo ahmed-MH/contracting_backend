@@ -4,6 +4,8 @@ import { CreateAffiliateDto } from './dto/create-affiliate.dto';
 import { UpdateAffiliateDto } from './dto/update-affiliate.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/constants/enums';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../common/interfaces/request.interface';
 
 @Controller('affiliates')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -11,8 +13,8 @@ export class AffiliateController {
     constructor(private readonly affiliateService: AffiliateService) { }
 
     @Post()
-    create(@Headers('x-hotel-id') hotelId: string, @Body() dto: CreateAffiliateDto) {
-        return this.affiliateService.create(parseInt(hotelId, 10), dto);
+    create(@Headers('x-hotel-id') hotelId: string, @Body() dto: CreateAffiliateDto, @CurrentUser() user?: RequestUser) {
+        return this.affiliateService.create(parseInt(hotelId, 10), dto, user);
     }
 
     @Get()
@@ -35,8 +37,9 @@ export class AffiliateController {
         @Headers('x-hotel-id') hotelId: string,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateAffiliateDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.affiliateService.update(parseInt(hotelId, 10), id, dto);
+        return this.affiliateService.update(parseInt(hotelId, 10), id, dto, user);
     }
 
     @Delete(':id')

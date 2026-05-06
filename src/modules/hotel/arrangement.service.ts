@@ -5,6 +5,8 @@ import { Arrangement } from './entities/arrangement.entity';
 import { Hotel } from './entities/hotel.entity';
 import { CreateArrangementDto } from './dto/create-arrangement.dto';
 import { UpdateArrangementDto } from './dto/update-arrangement.dto';
+import { RequestUser } from '../../common/interfaces/request.interface';
+import { AuditService } from '../../common/audit/audit.service';
 
 @Injectable()
 export class ArrangementService {
@@ -14,14 +16,17 @@ export class ArrangementService {
         private readonly arrangementRepo: Repository<Arrangement>,
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,
+        private readonly auditService: AuditService,
     ) { }
 
-    async createArrangement(hotelId: number, dto: CreateArrangementDto): Promise<Arrangement> {
+    async createArrangement(hotelId: number, dto: CreateArrangementDto, currentUser?: RequestUser): Promise<Arrangement> {
         const hotel = await this.hotelRepo.findOne({ where: { id: hotelId } });
         if (!hotel) {
             throw new NotFoundException(`Hotel #${hotelId} not found`);
         }
         const arrangement = this.arrangementRepo.create({ ...dto, hotel });
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyCreateAudit(arrangement, actor);
         return this.arrangementRepo.save(arrangement);
     }
 
@@ -36,12 +41,14 @@ export class ArrangementService {
         });
     }
 
-    async updateArrangement(hotelId: number, id: number, dto: UpdateArrangementDto): Promise<Arrangement> {
+    async updateArrangement(hotelId: number, id: number, dto: UpdateArrangementDto, currentUser?: RequestUser): Promise<Arrangement> {
         const arrangement = await this.arrangementRepo.findOne({ where: { id, hotelId } });
         if (!arrangement) {
             throw new NotFoundException(`Arrangement #${id} not found in hotel #${hotelId}`);
         }
         Object.assign(arrangement, dto);
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(arrangement, actor);
         return this.arrangementRepo.save(arrangement);
     }
 

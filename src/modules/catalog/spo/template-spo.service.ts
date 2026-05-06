@@ -6,6 +6,8 @@ import { CreateTemplateSpoDto } from './dto/create-template-spo.dto';
 import { UpdateTemplateSpoDto } from './dto/update-template-spo.dto';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { PageDto } from '../../../common/dto/page.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class TemplateSpoService {
@@ -13,13 +15,16 @@ export class TemplateSpoService {
     constructor(
         @InjectRepository(TemplateSpo)
         private readonly templateSpoRepo: Repository<TemplateSpo>,
+        private readonly auditService: AuditService,
     ) { }
 
-    async createTemplateSpo(hotelId: number, dto: CreateTemplateSpoDto): Promise<TemplateSpo> {
+    async createTemplateSpo(hotelId: number, dto: CreateTemplateSpoDto, currentUser?: RequestUser): Promise<TemplateSpo> {
         const spo = this.templateSpoRepo.create({
             ...dto,
             hotelId,
         });
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyCreateAudit(spo, actor);
         return this.templateSpoRepo.save(spo);
     }
 
@@ -47,13 +52,15 @@ export class TemplateSpoService {
         });
     }
 
-    async updateTemplateSpo(hotelId: number, id: number, dto: UpdateTemplateSpoDto): Promise<TemplateSpo> {
+    async updateTemplateSpo(hotelId: number, id: number, dto: UpdateTemplateSpoDto, currentUser?: RequestUser): Promise<TemplateSpo> {
         const spo = await this.templateSpoRepo.findOne({ where: { id, hotelId } });
         if (!spo) {
             throw new NotFoundException(`TemplateSpo #${id} not found for this hotel`);
         }
 
         Object.assign(spo, dto);
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(spo, actor);
         return this.templateSpoRepo.save(spo);
     }
 

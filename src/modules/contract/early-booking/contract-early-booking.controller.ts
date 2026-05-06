@@ -1,7 +1,9 @@
 import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
 import { Controller, Get, Post, Body, Patch, Param, Delete, Req, ParseIntPipe } from '@nestjs/common';
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { UserRole } from '../../../common/constants/enums';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 import { ContractEarlyBookingService } from './contract-early-booking.service';
 import { ImportEarlyBookingDto } from './dto/import-early-booking.dto';
 import { UpdateContractEarlyBookingDto } from './dto/update-contract-early-booking.dto';
@@ -32,11 +34,13 @@ export class ContractEarlyBookingController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Body() dto: ImportEarlyBookingDto,
+        @CurrentUser() user?: RequestUser,
     ) {
         return this.contractEarlyBookingService.importFromTemplate(
             this.getHotelId(req),
             contractId,
             dto.templateId,
+            user,
         );
     }
 
@@ -45,15 +49,17 @@ export class ContractEarlyBookingController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateContractEarlyBookingDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractEarlyBookingService.update(this.getHotelId(req), id, dto);
+        return this.contractEarlyBookingService.update(this.getHotelId(req), id, dto, user);
     }
 
     @Delete('early-bookings/:id')
     remove(
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractEarlyBookingService.remove(this.getHotelId(req), id);
+        return this.contractEarlyBookingService.remove(this.getHotelId(req), id, user);
     }
 }

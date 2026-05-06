@@ -14,8 +14,10 @@ import { ImportSupplementDto } from './dto/import-supplement.dto';
 import { UpdateContractSupplementDto } from './dto/update-contract-supplement.dto';
 
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { UserRole } from '../../../common/constants/enums';
 import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('contracts/:contractId/supplements')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -45,8 +47,9 @@ export class ContractSupplementController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Body() dto: ImportSupplementDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.supplementService.importFromTemplate(this.getHotelId(req), contractId, dto.templateId);
+        return this.supplementService.importFromTemplate(this.getHotelId(req), contractId, dto.templateId, user);
     }
 
     @Patch(':suppId')
@@ -55,8 +58,9 @@ export class ContractSupplementController {
         @Param('contractId', ParseIntPipe) contractId: number,
         @Param('suppId', ParseIntPipe) suppId: number,
         @Body() dto: UpdateContractSupplementDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.supplementService.update(this.getHotelId(req), contractId, suppId, dto);
+        return this.supplementService.update(this.getHotelId(req), contractId, suppId, dto, user);
     }
 
     @Delete(':suppId')
@@ -64,7 +68,8 @@ export class ContractSupplementController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Param('suppId', ParseIntPipe) suppId: number,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.supplementService.remove(this.getHotelId(req), contractId, suppId);
+        return this.supplementService.remove(this.getHotelId(req), contractId, suppId, user);
     }
 }

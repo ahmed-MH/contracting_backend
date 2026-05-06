@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, DeleteDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
+import { AuditableEntity } from '../../../common/audit/auditable.entity';
 import { User } from '../../users/entities/user.entity';
 import { TemplateMonoparentalRule } from '../../catalog/monoparental/entities/template-monoparental-rule.entity';
 import { TemplateEarlyBooking } from '../../catalog/early-booking/entities/template-early-booking.entity';
@@ -6,6 +7,8 @@ import { TemplateSpo } from '../../catalog/spo/entities/template-spo.entity';
 import { TemplateCancellationRule } from '../../catalog/cancellation/entities/template-cancellation-rule.entity';
 import { Tenant } from '../../tenants/entities/tenant.entity';
 import { Affiliate } from '../../affiliate/entities/affiliate.entity';
+import { AffiliateEmailSpo } from '../../affiliate/email-spo/entities/affiliate-email-spo.entity';
+import { HotelBankAccount } from './hotel-bank-account.entity';
 
 export interface HotelEmail {
     label: string;   // ex: "Réservations", "Direction", "Facturation"
@@ -13,7 +16,7 @@ export interface HotelEmail {
 }
 
 @Entity()
-export class Hotel {
+export class Hotel extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 
@@ -26,6 +29,9 @@ export class Hotel {
 
     @Column({ nullable: true })
     logoUrl: string;
+
+    @Column({ type: 'varchar', length: 7, nullable: true })
+    preferredThemeColor: string;
 
     @Column({ nullable: true })
     stars: number;
@@ -74,6 +80,12 @@ export class Hotel {
     @Column({ nullable: true })
     ibanCode: string;
 
+    @OneToMany(() => HotelBankAccount, (bankAccount) => bankAccount.hotel, {
+        cascade: true,
+        onDelete: 'CASCADE',
+    })
+    bankAccounts: HotelBankAccount[];
+
     // ── Opérationnel ─────────────────────────────────────────────────
     @Column()
     defaultCurrency: string;
@@ -118,6 +130,12 @@ export class Hotel {
         onDelete: 'CASCADE',
     })
     affiliates: Affiliate[];
+
+    @OneToMany(() => AffiliateEmailSpo, (emailSpo) => emailSpo.hotel, {
+        cascade: false,
+        onDelete: 'CASCADE',
+    })
+    affiliateEmailSpos: AffiliateEmailSpo[];
 
     @DeleteDateColumn()
     deletedAt: Date;

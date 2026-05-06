@@ -10,8 +10,10 @@ import { Hotel } from '../../hotel/entities/hotel.entity';
 import { Arrangement } from '../../hotel/entities/arrangement.entity';
 import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { ContractStatus } from '../../../common/constants/enums';
+import { ContractStatus, PaymentConditionType, PaymentMethodType } from '../../../common/constants/enums';
 import { ContractLine } from './entities/contract-line.entity';
+import { AuditService } from '../../../common/audit/audit.service';
+import { HotelBankAccount } from '../../hotel/entities/hotel-bank-account.entity';
 
 describe('ContractService', () => {
     let service: ContractService;
@@ -31,6 +33,7 @@ describe('ContractService', () => {
         affiliate: mockRepo('affiliate'),
         roomType: mockRepo('roomType'),
         hotel: mockRepo('hotel'),
+        hotelBankAccount: mockRepo('hotelBankAccount'),
         arrangement: mockRepo('arrangement'),
     };
 
@@ -62,6 +65,31 @@ describe('ContractService', () => {
         }),
         transaction: jest.fn().mockImplementation((cb) => cb(mockQueryRunner.manager)),
     };
+    const auditService = {
+        resolveActor: jest.fn(async (currentUser?: { id?: number; email?: string | null; displayName?: string | null }) => ({
+            userId: currentUser?.id ?? null,
+            name: currentUser?.displayName ?? currentUser?.email ?? (currentUser?.id ? `User #${currentUser.id}` : 'System'),
+            email: currentUser?.email ?? null,
+        })),
+        applyCreateAudit: jest.fn((entity: any, actor: any, timestamp: Date = new Date()) => {
+            entity.createdAt = timestamp;
+            entity.updatedAt = timestamp;
+            entity.createdByUserId = actor.userId;
+            entity.createdByName = actor.name;
+            entity.createdByEmail = actor.email;
+            entity.updatedByUserId = actor.userId;
+            entity.updatedByName = actor.name;
+            entity.updatedByEmail = actor.email;
+            return entity;
+        }),
+        applyUpdateAudit: jest.fn((entity: any, actor: any, timestamp: Date = new Date()) => {
+            entity.updatedAt = timestamp;
+            entity.updatedByUserId = actor.userId;
+            entity.updatedByName = actor.name;
+            entity.updatedByEmail = actor.email;
+            return entity;
+        }),
+    };
 
     const mockHotelId = 1;
     const setupActivationRepositories = (lines: any[] = []) => {
@@ -83,8 +111,10 @@ describe('ContractService', () => {
                 { provide: getRepositoryToken(Affiliate), useValue: repos.affiliate },
                 { provide: getRepositoryToken(RoomType), useValue: repos.roomType },
                 { provide: getRepositoryToken(Hotel), useValue: repos.hotel },
+                { provide: getRepositoryToken(HotelBankAccount), useValue: repos.hotelBankAccount },
                 { provide: getRepositoryToken(Arrangement), useValue: repos.arrangement },
                 { provide: DataSource, useValue: mockDataSource },
+                { provide: AuditService, useValue: auditService },
             ],
         }).compile();
 
@@ -108,6 +138,68 @@ describe('ContractService', () => {
             const result = await service.createContract(mockHotelId, dto);
             expect(result).toEqual({ id: 100 });
             expect(repos.contract.save).toHaveBeenCalled();
+        });
+
+        it('should persist payment policy fields during creation', async () => {
+            const dto = {
+                name: 'Payment policy',
+                startDate: '2025-01-01',
+                endDate: '2025-12-31',
+                affiliateIds: [1],
+                currency: 'TND',
+                paymentCondition: PaymentConditionType.DEPOSIT,
+                depositAmount: 5000,
+                creditDays: 15,
+                paymentMethods: [PaymentMethodType.BANK_TRANSFER, PaymentMethodType.BANK_CHECK],
+            } as any;
+            repos.hotel.findOne.mockResolvedValue({ id: mockHotelId, defaultCurrency: 'TND' });
+            repos.affiliate.findOne.mockResolvedValue({ id: 1 });
+            repos.contract.create.mockImplementation((value) => value);
+            repos.contract.save.mockImplementation(async (value) => value);
+
+            const result = await service.createContract(mockHotelId, dto);
+
+            expect(repos.contract.create).toHaveBeenCalledWith(expect.objectContaining({
+                paymentCondition: PaymentConditionType.PARTIAL_DEPOSIT,
+                depositAmount: 5000,
+                creditDays: 15,
+                paymentMethods: [PaymentMethodType.BANK_TRANSFER, PaymentMethodType.BANK_CHECK],
+                paymentPolicy: expect.objectContaining({
+                    methods: expect.arrayContaining([
+                        expect.objectContaining({ type: PaymentMethodType.BANK_TRANSFER }),
+                        expect.objectContaining({ type: PaymentMethodType.BANK_CHECK }),
+                    ]),
+                    conditions: expect.arrayContaining([
+                        expect.objectContaining({ type: PaymentConditionType.PARTIAL_DEPOSIT }),
+                        expect.objectContaining({ type: PaymentConditionType.CREDIT_DAYS_FROM_INVOICE, days: 15 }),
+                    ]),
+                    deposit: expect.objectContaining({ value: 5000, currency: 'TND' }),
+                }),
+            }));
+            expect(result.paymentPolicy.conditions).toHaveLength(2);
+        });
+
+        it('should map PREPAYMENT_100 to FULL_PREPAYMENT during creation', async () => {
+            const dto = {
+                name: 'Legacy prepayment',
+                startDate: '2025-01-01',
+                endDate: '2025-12-31',
+                affiliateIds: [1],
+                currency: 'EUR',
+                paymentCondition: PaymentConditionType.PREPAYMENT_100,
+                paymentMethods: [PaymentMethodType.SWIFT_TRANSFER],
+            } as any;
+            repos.hotel.findOne.mockResolvedValue({ id: mockHotelId, defaultCurrency: 'TND' });
+            repos.affiliate.findOne.mockResolvedValue({ id: 1 });
+            repos.contract.create.mockImplementation((value) => value);
+            repos.contract.save.mockImplementation(async (value) => value);
+
+            const result = await service.createContract(mockHotelId, dto);
+
+            expect(result.paymentCondition).toBe(PaymentConditionType.FULL_PREPAYMENT);
+            expect(result.paymentPolicy.conditions).toEqual([
+                expect.objectContaining({ type: PaymentConditionType.FULL_PREPAYMENT, percentage: 100 }),
+            ]);
         });
 
         it('should throw BadRequestException if dates are invalid', async () => {
@@ -187,6 +279,25 @@ describe('ContractService', () => {
             repos.contract.findOne.mockResolvedValue(null);
             await expect(service.updateContract(mockHotelId, 1, {} as any)).rejects.toThrow(NotFoundException);
         });
+
+        it('should persist structured payment policy during update', async () => {
+            const mockContract = { id: 1, currency: 'EUR', hotel: { defaultCurrency: 'TND' }, affiliates: [] };
+            repos.contract.findOne.mockResolvedValue(mockContract);
+            repos.contract.save.mockImplementation(async (value) => value);
+
+            const result = await service.updateContract(mockHotelId, 1, {
+                paymentPolicy: {
+                    marketScope: 'INTERNATIONAL',
+                    methods: [{ type: PaymentMethodType.SWIFT_TRANSFER, isPrimary: true }],
+                    conditions: [{ type: PaymentConditionType.FULL_PREPAYMENT, percentage: 100 }],
+                    selectedHotelBankAccountId: null,
+                },
+            } as any);
+
+            expect(result.paymentMethods).toEqual([PaymentMethodType.SWIFT_TRANSFER]);
+            expect(result.paymentCondition).toBe(PaymentConditionType.FULL_PREPAYMENT);
+            expect(result.paymentPolicy.conditions[0].percentage).toBe(100);
+        });
     });
 
     describe('activation validation', () => {
@@ -199,6 +310,14 @@ describe('ContractService', () => {
             currency: 'EUR',
             baseArrangementId: 1,
             affiliates: [{ id: 1 }],
+            paymentPolicy: {
+                marketScope: 'INTERNATIONAL',
+                methods: [{ type: PaymentMethodType.SWIFT_TRANSFER, isPrimary: true }],
+                conditions: [{ type: PaymentConditionType.FULL_PREPAYMENT, percentage: 100 }],
+                selectedHotelBankAccountId: null,
+            },
+            paymentMethods: [PaymentMethodType.SWIFT_TRANSFER],
+            paymentCondition: PaymentConditionType.FULL_PREPAYMENT,
         };
         const validPeriod = {
             id: 10,
@@ -286,6 +405,23 @@ describe('ContractService', () => {
             );
         });
 
+        it('should block activation when payment policy has no methods', async () => {
+            setupActivationRepositories([validLine]);
+            repos.contract.findOne.mockResolvedValue({
+                ...validContract,
+                paymentPolicy: { ...validContract.paymentPolicy, methods: [] },
+                paymentMethods: [],
+            });
+            repos.period.find.mockResolvedValue([validPeriod]);
+            repos.contractRoom.find.mockResolvedValue([validRoom]);
+            repos.arrangement.findOne.mockResolvedValue(validArrangement);
+
+            await expectActivationFailureCode(
+                service.updateContract(mockHotelId, 1, { status: ContractStatus.ACTIVE } as any),
+                'MISSING_PAYMENT_METHOD',
+            );
+        });
+
         it('should activate when validation passes', async () => {
             setupActivationRepositories([validLine]);
             const contract = { ...validContract };
@@ -325,7 +461,7 @@ describe('ContractService', () => {
             await expect(service.validateActivation(mockHotelId, 999)).rejects.toThrow(NotFoundException);
             expect(repos.contract.findOne).toHaveBeenCalledWith({
                 where: { id: 999, hotelId: mockHotelId },
-                relations: ['affiliates', 'baseArrangement'],
+                relations: ['affiliates', 'baseArrangement', 'hotel'],
             });
         });
     });
@@ -424,6 +560,7 @@ describe('ContractService', () => {
                     .mockResolvedValueOnce(null) // ContractLine
                     .mockResolvedValueOnce(null), // Price
                 create: jest.fn().mockReturnValue({ id: 1 }),
+                delete: jest.fn().mockResolvedValue(undefined),
                 save: jest.fn().mockResolvedValue({ id: 1 }),
             };
             mockQueryRunner.manager.getRepository.mockReturnValue(mockRepo);
@@ -453,7 +590,7 @@ describe('ContractService', () => {
             await expect(service.batchUpsertPrices(1, 1, dto)).rejects.toThrow('DB Error');
         });
 
-        it('should reject prices for arrangements outside the active hotel', async () => {
+        it('should collapse arrangement-specific price entries into the base contract rate', async () => {
             const contract = { id: 1, periods: [{ id: 1 }], contractRooms: [{ id: 1 }], currency: 'USD' };
             repos.contract.findOne.mockResolvedValue(contract);
             repos.arrangement.find.mockResolvedValue([]);
@@ -465,8 +602,20 @@ describe('ContractService', () => {
                 ]
             } as any;
 
-            await expect(service.batchUpsertPrices(1, 1, dto)).rejects.toThrow(NotFoundException);
-            expect(mockDataSource.transaction).not.toHaveBeenCalled();
+            const mockRepo = {
+                findOne: jest.fn().mockResolvedValue(null),
+                create: jest.fn().mockReturnValue({ id: 1 }),
+                delete: jest.fn().mockResolvedValue(undefined),
+                save: jest.fn().mockResolvedValue({ id: 1 }),
+            };
+            mockQueryRunner.manager.getRepository.mockReturnValue(mockRepo);
+
+            await expect(service.batchUpsertPrices(1, 1, dto)).resolves.toEqual({
+                success: true,
+                message: '1 cells processed.',
+            });
+            expect(mockDataSource.transaction).toHaveBeenCalled();
+            expect(mockRepo.delete).toHaveBeenCalled();
         });
     });
 });

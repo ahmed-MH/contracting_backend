@@ -6,7 +6,8 @@ import { UpdateTemplateEarlyBookingDto } from './dto/update-template-early-booki
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/enums';
-import { Request } from 'express';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('hotel')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -38,8 +39,9 @@ export class TemplateEarlyBookingController {
     createTemplateEarlyBooking(
         @Req() req: AuthenticatedRequest,
         @Body() dto: CreateTemplateEarlyBookingDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.templateEarlyBookingService.createTemplateEarlyBooking(this.getHotelId(req), dto);
+        return this.templateEarlyBookingService.createTemplateEarlyBooking(this.getHotelId(req), dto, user);
     }
 
     @Patch('early-bookings/:id')
@@ -47,8 +49,9 @@ export class TemplateEarlyBookingController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateTemplateEarlyBookingDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.templateEarlyBookingService.updateTemplateEarlyBooking(this.getHotelId(req), id, dto);
+        return this.templateEarlyBookingService.updateTemplateEarlyBooking(this.getHotelId(req), id, dto, user);
     }
 
     @Delete('early-bookings/:id')

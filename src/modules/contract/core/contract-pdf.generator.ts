@@ -1,4 +1,5 @@
 import { existsSync } from 'fs';
+import { join } from 'path';
 import PDFDocument = require('pdfkit');
 import { Contract } from './entities/contract.entity';
 import { ContractLine } from './entities/contract-line.entity';
@@ -69,8 +70,12 @@ export class ContractPDFGenerator {
         en: {
             hotelAgreement: 'HOTEL COMMERCIAL AGREEMENT',
             agreementDetails: 'AGREEMENT DETAILS',
+            commercialAgreement: 'COMMERCIAL AGREEMENT',
             document: 'DOCUMENT',
+            ref: 'REF',
             season: 'SEASON',
+            partner: 'PARTNER',
+            selectPartner: 'Select partner',
             currency: 'CURRENCY',
             stayValidity: 'Stay validity',
             rateBasis: 'Rate basis',
@@ -99,8 +104,12 @@ export class ContractPDFGenerator {
         fr: {
             hotelAgreement: 'CONTRAT HOTELIER COMMERCIAL',
             agreementDetails: 'DETAILS DU CONTRAT',
+            commercialAgreement: 'CONTRAT COMMERCIAL',
             document: 'DOCUMENT',
+            ref: 'REF',
             season: 'SAISON',
+            partner: 'PARTENAIRE',
+            selectPartner: 'Selectionner un partenaire',
             currency: 'DEVISE',
             stayValidity: 'Validite sejour',
             rateBasis: 'Base tarifaire',
@@ -189,39 +198,70 @@ export class ContractPDFGenerator {
         const metaX = this.pageWidth - this.margin - metaWidth;
         const titleX = this.margin + logoSize + 16;
         const titleWidth = metaX - titleX - 18;
+        const accent = this.accentColor(hotel);
+        const title = contract.name || 'Seasonal Tariff Agreement';
+        const summaryY = topY + 108;
+        const summaryHeight = 44;
+        const summaryWidth = this.contentWidth / 3;
+        const partnerName = selectedPartner.companyName || this.tr(model, 'selectPartner');
 
-        doc.save().rect(0, 0, this.pageWidth, 16).fill(this.navy).restore();
-        doc.save().rect(this.margin, topY, this.contentWidth, 92).fill('#FFFFFF').strokeColor(this.border).stroke().restore();
-        doc.save().rect(this.margin, topY, 5, 92).fill(this.mint).restore();
-        this.drawLogo(doc, hotel, this.margin + 14, topY + 15, logoSize, logoImage);
+        this.drawLogo(doc, hotel, this.margin, topY + 2, logoSize, logoImage);
 
-        doc.font('Helvetica-Bold').fontSize(7).fillColor(this.mint)
-            .text(this.tr(model, 'hotelAgreement'), titleX, topY + 14, { width: titleWidth, characterSpacing: 1.3 });
+        doc.font('Helvetica-Bold').fontSize(7).fillColor(accent)
+            .text(this.tr(model, 'hotelAgreement'), titleX, topY + 8, { width: titleWidth, characterSpacing: 1.3 });
         doc.font('Helvetica-Bold').fontSize(16).fillColor(this.navy)
-            .text(String(contract.name || 'Seasonal Tariff Agreement').toUpperCase(), titleX, topY + 27, {
+            .text(String(title).toUpperCase(), titleX, topY + 22, {
                 width: titleWidth,
                 lineGap: 0.5,
             });
         doc.font('Helvetica-Bold').fontSize(10.5).fillColor(this.text)
-            .text(hotel?.name ?? 'Hotel', titleX, topY + 58, { width: titleWidth });
+            .text(hotel?.name ?? 'Hotel', titleX, topY + 54, { width: titleWidth });
         doc.font('Helvetica').fontSize(7.2).fillColor(this.slate)
-            .text(this.compactAddress(hotel), titleX, topY + 72, { width: titleWidth, lineGap: 0.5 });
+            .text(hotel?.address || 'Commercial contact details as per agreement', titleX, topY + 68, {
+                width: titleWidth,
+                lineGap: 0.5,
+            });
 
-        doc.save().rect(metaX, topY, metaWidth, 92).fill(this.light).strokeColor(this.border).stroke().restore();
-        doc.save().rect(metaX, topY, metaWidth, 22).fill(this.navy).restore();
+        doc.save().rect(metaX, topY, metaWidth, 92).fill('#FFFFFF').strokeColor(this.border).stroke().restore();
+        doc.save().rect(metaX, topY, metaWidth, 22).fill(accent).restore();
         doc.font('Helvetica-Bold').fontSize(7).fillColor('#FFFFFF')
-            .text(this.tr(model, 'agreementDetails'), metaX + 10, topY + 8, { width: metaWidth - 20, align: 'center', characterSpacing: 1 });
-        this.drawMetaLine(doc, metaX, topY + 31, this.tr(model, 'document'), this.publicReference(contract.reference));
-        this.drawMetaLine(doc, metaX, topY + 49, this.tr(model, 'season'), contract.name || 'Current season');
-        this.drawMetaLine(doc, metaX, topY + 67, this.tr(model, 'currency'), contract.currency);
+            .text(this.tr(model, 'commercialAgreement'), metaX + 10, topY + 8, { width: metaWidth - 20, align: 'center', characterSpacing: 1 });
 
-        doc.y = topY + 106;
-        this.drawInfoStrip(doc, [
-            [this.tr(model, 'stayValidity'), this.formatDateRange(contract.startDate, contract.endDate)],
+        const metaLines: Array<[string, string]> = [
+            [this.tr(model, 'ref'), contract.reference || `CTR-${contract.id}`],
+            [this.tr(model, 'season'), title],
+            [this.tr(model, 'partner'), partnerName],
+            [this.tr(model, 'currency'), contract.currency],
+        ];
+
+        let metaLineY = topY + 32;
+        metaLines.forEach(([label, value]) => {
+            doc.font('Helvetica-Bold').fontSize(7.1).fillColor(accent)
+                .text(`${label}:`, metaX + 10, metaLineY, { width: metaWidth - 20 });
+            doc.font('Helvetica').fontSize(7.1).fillColor(this.text)
+                .text(value, metaX + 10, metaLineY + 10, { width: metaWidth - 20, align: 'right' });
+            metaLineY += 15;
+        });
+
+        [
+            [this.tr(model, 'season'), title],
+            [this.tr(model, 'stayValidity'), this.formatDateRange(contract.startDate, contract.endDate, this.lang(model))],
             [this.tr(model, 'rateBasis'), this.tr(model, 'perPersonPerNight')],
-            [this.tr(model, 'tourOperator'), selectedPartner.companyName],
-        ]);
-        doc.y += 8;
+        ].forEach(([label, value], index) => {
+            const cellX = this.margin + summaryWidth * index;
+            doc.save().rect(cellX, summaryY, summaryWidth, summaryHeight).fillAndStroke('#FFFFFF', this.border).restore();
+            doc.font('Helvetica-Bold').fontSize(6.4).fillColor(accent)
+                .text(label.toUpperCase(), cellX + 10, summaryY + 8, { width: summaryWidth - 20, characterSpacing: 0.7 });
+            doc.font('Helvetica-Bold').fontSize(8.4).fillColor(this.navy)
+                .text(value, cellX + 10, summaryY + 22, { width: summaryWidth - 20 });
+        });
+
+        doc.moveTo(this.margin, summaryY + summaryHeight + 10)
+            .lineTo(this.margin + this.contentWidth, summaryY + summaryHeight + 10)
+            .strokeColor(accent)
+            .lineWidth(1.3)
+            .stroke();
+        doc.y = summaryY + summaryHeight + 18;
     }
 
     private drawParties(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel): void {
@@ -294,14 +334,39 @@ export class ContractPDFGenerator {
         }
     }
 
-    private paymentItems({ contract, hotel }: ContractPdfGeneratorModel): string[] {
+    private paymentItems(model: ContractPdfGeneratorModel): string[] {
+        const { contract, hotel } = model;
+        const language = this.lang(model);
+        const isFr = language === 'fr';
+        const policy = contract.paymentPolicy;
+        const methods = policy?.methods?.map((method) => method.type) ?? contract.paymentMethods ?? [];
+        const conditions = policy?.conditions ?? [];
+        const bankAccount = contract.selectedHotelBankAccount;
+        const bankName = bankAccount?.bankName ?? hotel?.bankName;
+        const accountNumber = bankAccount?.accountNumber ?? hotel?.accountNumber;
+        const rib = bankAccount?.rib ?? accountNumber;
+        const iban = bankAccount?.iban ?? hotel?.ibanCode;
+        const swiftCode = bankAccount?.swiftCode ?? hotel?.swiftCode;
+        const bankCurrency = bankAccount?.currency;
+
+        const conditionLines = conditions.length > 0
+            ? conditions.map((condition) => this.formatPaymentPolicyCondition(condition, contract.currency, language, policy?.deposit))
+            : [
+                contract.paymentCondition
+                    ? this.formatPaymentCondition(contract.paymentCondition, language)
+                    : (isFr ? 'Conditions de paiement a confirmer par les parties' : 'Payment terms to be confirmed by the parties'),
+            ];
+
         return [
-            contract.paymentCondition ? `Payment condition: ${this.formatPaymentCondition(contract.paymentCondition)}.` : 'Payment condition to be agreed in writing by both parties.',
-            contract.depositAmount ? `Deposit: ${this.formatMoney(Number(contract.depositAmount), contract.currency)}.` : null,
-            contract.creditDays ? `Credit facility: ${contract.creditDays} day(s) from invoice date.` : null,
-            contract.paymentMethods?.length ? `Accepted payment methods: ${contract.paymentMethods.map((method) => this.labelize(method)).join(', ')}.` : null,
-            hotel?.bankName ? `Bank: ${hotel.bankName}.` : null,
-            hotel?.ibanCode ? `IBAN: ${hotel.ibanCode}.` : null,
+            methods.length
+                ? `${isFr ? 'Methodes de paiement' : 'Payment methods'}: ${methods.map((method) => this.formatPaymentMethod(method, language)).join(', ')}.`
+                : null,
+            `${isFr ? 'Conditions de paiement' : 'Payment conditions'}: ${conditionLines.join(' / ')}.`,
+            bankName ? `${isFr ? 'Banque' : 'Bank'}: ${bankName}.` : null,
+            rib ? `${isFr ? 'Compte / RIB' : 'Account / RIB'}: ${rib}.` : null,
+            iban ? `IBAN: ${iban}.` : null,
+            swiftCode ? `SWIFT/BIC: ${swiftCode}.` : null,
+            bankCurrency ? `${isFr ? 'Devise bancaire' : 'Bank currency'}: ${bankCurrency}.` : null,
         ].filter((item): item is string => Boolean(item));
     }
 
@@ -330,7 +395,7 @@ export class ContractPDFGenerator {
     private drawPaymentTerms(doc: PDFKit.PDFDocument, model: ContractPdfGeneratorModel, index: string): void {
         this.drawSectionTitle(doc, index, this.tr(model, 'paymentTerms'), 72);
         const paymentItems = this.paymentItems(model);
-        this.drawFullCard(doc, 'Payment terms', this.numbered(paymentItems.length > 0 ? paymentItems : ['Payment terms to be confirmed by the parties.']), 58);
+        this.drawFullCard(doc, this.tr(model, 'paymentTerms'), this.numbered(paymentItems.length > 0 ? paymentItems : [this.lang(model) === 'fr' ? 'Conditions de paiement a confirmer par les parties.' : 'Payment terms to be confirmed by the parties.']), 58);
         doc.y += 8;
     }
 
@@ -467,6 +532,8 @@ export class ContractPDFGenerator {
             const applicablePeriods = this.resolveRulePeriods(periods, spo.applicablePeriods as any[]);
             const trigger = spo.conditionType === 'MIN_NIGHTS'
                 ? `Minimum stay ${spo.conditionValue ?? spo.stayNights} nights`
+                : spo.conditionType === 'AGE'
+                    ? `Minimum age ${spo.conditionValue} years`
                 : this.labelize(spo.conditionType);
             const scope = this.compactScope([trigger, this.labelize(spo.applicationType), this.roomScope(spo.applicableContractRooms)]);
             return {
@@ -848,7 +915,7 @@ export class ContractPDFGenerator {
             // If a logo cannot be rendered, fall through to the printable monogram.
         }
 
-        doc.font('Helvetica-Bold').fontSize(24).fillColor(this.navy)
+        doc.font('Helvetica-Bold').fontSize(24).fillColor(this.accentColor(hotel))
             .text((hotel?.name ?? 'P').slice(0, 1).toUpperCase(), x, y + 19, { width: size, align: 'center' });
     }
 
@@ -865,6 +932,11 @@ export class ContractPDFGenerator {
                 return logoUrl;
             }
 
+            const localLogoPath = this.localLogoPath(logoUrl);
+            if (localLogoPath) {
+                return localLogoPath;
+            }
+
             if (/^https?:\/\//i.test(logoUrl)) {
                 const response = await fetch(logoUrl);
                 if (!response.ok) return null;
@@ -874,6 +946,29 @@ export class ContractPDFGenerator {
             }
         } catch {
             return null;
+        }
+
+        return null;
+    }
+
+    private localLogoPath(logoUrl: string): string | null {
+        if (/^https?:\/\//i.test(logoUrl)) return null;
+
+        const normalized = logoUrl
+            .replace(/\\/g, '/')
+            .replace(/^\/+/, '')
+            .replace(/^api\/+/i, '');
+        if (!normalized) return null;
+
+        const candidates = [
+            join(process.cwd(), normalized),
+            join(process.cwd(), 'public', normalized),
+        ];
+
+        for (const candidate of candidates) {
+            if (existsSync(candidate)) {
+                return candidate;
+            }
         }
 
         return null;
@@ -973,11 +1068,94 @@ export class ContractPDFGenerator {
         return this.isPublicReference(reference) ? reference.trim() : 'Commercial agreement';
     }
 
-    private formatPaymentCondition(value?: string | null): string {
-        if (!value) return 'Payment condition to be agreed in writing by both parties';
-        if (value === 'PREPAYMENT_100') return '100% prepayment';
-        if (value === 'DEPOSIT') return 'Deposit payment';
+    private formatPaymentCondition(value?: string | null, language: 'fr' | 'en' = 'en'): string {
+        if (!value) return language === 'fr' ? 'Conditions de paiement a confirmer par les parties' : 'Payment condition to be agreed in writing by both parties';
+        if (value === 'PREPAYMENT_100' || value === 'FULL_PREPAYMENT') return language === 'fr' ? '100% prepaiement' : '100% prepayment';
+        if (value === 'DEPOSIT' || value === 'PARTIAL_DEPOSIT') return language === 'fr' ? 'Acompte partiel' : 'Partial deposit';
+        if (value === 'CREDIT_DAYS_FROM_INVOICE') return language === 'fr' ? 'Credit depuis emission de facture' : 'Credit from invoice issue';
+        if (value === 'PAYMENT_ON_ARRIVAL') return language === 'fr' ? "Paiement a l'arrivee" : 'Payment on arrival';
+        if (value === 'PAYMENT_ON_DEPARTURE') return language === 'fr' ? 'Paiement au depart' : 'Payment on departure';
+        if (value === 'CUSTOM') return language === 'fr' ? 'Condition specifique' : 'Custom condition';
         return this.labelize(value);
+    }
+
+    private formatPaymentMethod(value?: string | null, language: 'fr' | 'en' = 'en'): string {
+        const labels = {
+            en: {
+                BANK_TRANSFER: 'Bank transfer',
+                SWIFT_TRANSFER: 'SWIFT transfer',
+                BANK_CHECK: 'Bank check',
+                BANK_DRAFT: 'Banker / bank draft',
+                CASH: 'Cash',
+                CREDIT_CARD: 'Credit card',
+                PAYMENT_GATEWAY: 'Payment gateway',
+                OTHER: 'Other',
+            },
+            fr: {
+                BANK_TRANSFER: 'Virement bancaire local',
+                SWIFT_TRANSFER: 'Virement SWIFT',
+                BANK_CHECK: 'Cheque bancaire',
+                BANK_DRAFT: 'Cheque de banque / banker',
+                CASH: 'Especes',
+                CREDIT_CARD: 'Carte bancaire',
+                PAYMENT_GATEWAY: 'Plateforme de paiement',
+                OTHER: 'Autre',
+            },
+        } as const;
+        if (!value) return language === 'fr' ? 'Selon accord' : 'As agreed';
+        return labels[language][value as keyof typeof labels.en] ?? this.labelize(value);
+    }
+
+    private formatPaymentPolicyCondition(
+        condition: { type?: string | null; percentage?: number; days?: number; basis?: string; label?: string; notes?: string },
+        currency: string,
+        language: 'fr' | 'en',
+        deposit?: { type?: string; value?: number; currency?: string; dueTrigger?: string; refundable?: boolean } | null,
+    ): string {
+        const isFr = language === 'fr';
+        if (condition.type === 'FULL_PREPAYMENT' || condition.type === 'PREPAYMENT_100') {
+            return isFr ? '100% prepaiement' : '100% prepayment';
+        }
+        if (condition.type === 'PARTIAL_DEPOSIT' || condition.type === 'DEPOSIT') {
+            if (!deposit) return isFr ? 'Acompte partiel' : 'Partial deposit';
+            const value = deposit.type === 'PERCENTAGE'
+                ? `${Number(deposit.value ?? condition.percentage ?? 0)}%`
+                : this.formatMoney(Number(deposit.value ?? 0), deposit.currency || currency);
+            const refundable = deposit.refundable ? (isFr ? 'remboursable' : 'refundable') : (isFr ? 'non remboursable' : 'non-refundable');
+            const due = deposit.dueTrigger
+                ? `${isFr ? 'du' : 'due'} ${this.formatPaymentDueTrigger(deposit.dueTrigger, language)}`
+                : null;
+            return [isFr ? `Acompte: ${value}` : `Deposit: ${value}`, refundable, due].filter(Boolean).join(', ');
+        }
+        if (condition.type === 'CREDIT_DAYS_FROM_INVOICE') {
+            const basis = this.formatPaymentBasis(condition.basis, language);
+            return isFr
+                ? `${condition.days ?? 0} jours de credit depuis ${basis}`
+                : `${condition.days ?? 0} days credit from ${basis}`;
+        }
+        if (condition.type === 'PAYMENT_ON_ARRIVAL') return isFr ? "Paiement a l'arrivee" : 'Payment on arrival';
+        if (condition.type === 'PAYMENT_ON_DEPARTURE') return isFr ? 'Paiement au depart' : 'Payment on departure';
+        if (condition.type === 'CUSTOM') return condition.label || condition.notes || (isFr ? 'Condition specifique' : 'Custom condition');
+        return this.formatPaymentCondition(condition.type, language);
+    }
+
+    private formatPaymentBasis(value?: string, language: 'fr' | 'en' = 'en'): string {
+        const labels = {
+            INVOICE_ISSUE: language === 'fr' ? 'emission de facture' : 'invoice issue',
+            INVOICE_RECEIPT: language === 'fr' ? 'reception de facture' : 'invoice receipt',
+            CHECK_OUT: language === 'fr' ? 'depart client' : 'check-out',
+        };
+        return value ? labels[value as keyof typeof labels] ?? this.labelize(value) : labels.INVOICE_ISSUE;
+    }
+
+    private formatPaymentDueTrigger(value?: string, language: 'fr' | 'en' = 'en'): string {
+        const labels = {
+            BOOKING_CONFIRMATION: language === 'fr' ? 'a la confirmation de reservation' : 'at booking confirmation',
+            BEFORE_CHECK_IN: language === 'fr' ? 'avant check-in' : 'before check-in',
+            INVOICE_ISSUE: language === 'fr' ? 'a emission de facture' : 'at invoice issue',
+            CUSTOM: language === 'fr' ? 'selon condition specifique' : 'by custom condition',
+        };
+        return value ? labels[value as keyof typeof labels] ?? this.labelize(value) : '';
     }
 
     private normalizePeriodName(name?: string | null): string {
@@ -985,15 +1163,15 @@ export class ContractPDFGenerator {
         return name.replace(/^p[ée]riode\b/i, 'Period');
     }
 
-    private formatDate(value: Date | string | null | undefined): string {
+    private formatDate(value: Date | string | null | undefined, language: 'fr' | 'en' = 'en'): string {
         if (!value) return 'As agreed';
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return 'As agreed';
-        return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(date);
+        return new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(date);
     }
 
-    private formatDateRange(start: Date | string | null | undefined, end: Date | string | null | undefined): string {
-        return `${this.formatDate(start)} to ${this.formatDate(end)}`;
+    private formatDateRange(start: Date | string | null | undefined, end: Date | string | null | undefined, language: 'fr' | 'en' = 'en'): string {
+        return `${this.formatDate(start, language)} - ${this.formatDate(end, language)}`;
     }
 
     private formatBookingWindow(start: Date | string | null | undefined, end: Date | string | null | undefined): string {
@@ -1192,5 +1370,12 @@ export class ContractPDFGenerator {
             chunks.push(items.slice(index, index + size));
         }
         return chunks;
+    }
+
+    private accentColor(hotel: Hotel | null): string {
+        const color = hotel?.preferredThemeColor;
+        return typeof color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(color)
+            ? color.toUpperCase()
+            : this.mint;
     }
 }

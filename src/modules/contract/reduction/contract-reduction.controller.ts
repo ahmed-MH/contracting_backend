@@ -15,7 +15,9 @@ import { ImportReductionDto } from './dto/import-reduction.dto';
 import { UpdateContractReductionDto } from './dto/update-contract-reduction.dto';
 
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { UserRole } from '../../../common/constants/enums';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('contracts/:contractId/reductions')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -45,11 +47,13 @@ export class ContractReductionController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Body() dto: ImportReductionDto,
+        @CurrentUser() user?: RequestUser,
     ) {
         return this.reductionService.importFromTemplate(
             this.getHotelId(req),
             contractId,
             dto.templateId,
+            user,
         );
     }
 
@@ -59,8 +63,9 @@ export class ContractReductionController {
         @Param('contractId', ParseIntPipe) contractId: number,
         @Param('reductionId', ParseIntPipe) reductionId: number,
         @Body() dto: UpdateContractReductionDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.reductionService.update(this.getHotelId(req), contractId, reductionId, dto);
+        return this.reductionService.update(this.getHotelId(req), contractId, reductionId, dto, user);
     }
 
     @Delete(':reductionId')
@@ -68,7 +73,8 @@ export class ContractReductionController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Param('reductionId', ParseIntPipe) reductionId: number,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.reductionService.remove(this.getHotelId(req), contractId, reductionId);
+        return this.reductionService.remove(this.getHotelId(req), contractId, reductionId, user);
     }
 }

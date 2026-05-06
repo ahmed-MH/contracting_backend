@@ -8,6 +8,23 @@ export class ModifierDto {
     amount: number;
 }
 
+export class PricingTraceDto {
+    stage: string;
+    label: string;
+    beforeAmount: number;
+    deltaAmount: number;
+    afterAmount: number;
+    type?: string;
+    percent?: number;
+    stackMode?: string;
+    applicationStep?: string;
+    baseAmount?: number;
+    discountAmount?: number;
+    sourceType?: string;
+    sourceId?: number;
+    metadata?: Record<string, unknown>;
+}
+
 export class DailyRateDto {
     date: string;
     baseRate: number;
@@ -26,15 +43,25 @@ export class DailyRateDto {
 export class RoomBreakdownDto {
     roomIndex: number;
     roomId: number;
+    boardTypeId: number;
     roomTotalNet: number;
     dailyRates: DailyRateDto[];
+    pricingTrace: PricingTraceDto[];
+}
+
+export class InactiveContractOverrideDto {
+    enabled: boolean;
+    contractStatus: string;
+    reason?: string;
 }
 
 export class SimulationResponseDto {
     contractId: number;
+    contractStatus: string;
     checkIn: string;
     checkOut: string;
     currency: string;
+    inactiveContractOverride?: InactiveContractOverrideDto;
     
     totalBrut: number;
     totalRemise: number;

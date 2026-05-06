@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { HotelAccessGuard } from './common/guards/hotel-access.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { AuditModule } from './common/audit/audit.module';
 
 import { HotelModule } from './modules/hotel/hotel.module';
 import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
@@ -21,6 +22,7 @@ import { MailModule } from './modules/mail/mail.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { CustomIdSubscriber } from './common/subscribers/custom-id.subscriber';
 import { buildNestMssqlConfig } from './config/database.config';
 
@@ -30,6 +32,7 @@ import { buildNestMssqlConfig } from './config/database.config';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    AuditModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -52,6 +55,7 @@ import { buildNestMssqlConfig } from './config/database.config';
     TenantsModule,
     PlansModule,
     SubscriptionsModule,
+    IntegrationsModule,
 
     // Auth & Mail
     AuthModule,

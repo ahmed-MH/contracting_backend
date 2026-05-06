@@ -11,6 +11,7 @@ export class CreateTemplateSpoDto {
 
     @IsOptional()
     @IsNumber()
+    @Min(0)
     @Type(() => Number)
     conditionValue?: number;
 

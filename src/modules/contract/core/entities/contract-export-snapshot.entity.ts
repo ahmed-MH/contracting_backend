@@ -1,9 +1,10 @@
-import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Contract } from './contract.entity';
 import { Affiliate } from '../../../affiliate/entities/affiliate.entity';
+import { AuditableEntity } from '../../../../common/audit/auditable.entity';
 
 @Entity()
-export class ContractExportSnapshot {
+export class ContractExportSnapshot extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 
@@ -40,7 +41,10 @@ export class ContractExportSnapshot {
     })
     exchangeRateValuesUsed: Record<string, unknown>;
 
-    @CreateDateColumn()
+    @Column({
+        type: 'datetime2',
+        default: () => 'SYSUTCDATETIME()',
+    })
     generatedAt: Date;
 
     @Column({ type: 'int', nullable: true })

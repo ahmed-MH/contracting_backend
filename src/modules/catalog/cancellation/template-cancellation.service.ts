@@ -5,6 +5,8 @@ import { TemplateCancellationRule } from './entities/template-cancellation-rule.
 import { CreateTemplateCancellationRuleDto, UpdateTemplateCancellationRuleDto } from './dto/template-cancellation.dto';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { PageDto } from '../../../common/dto/page.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class TemplateCancellationService {
@@ -12,13 +14,16 @@ export class TemplateCancellationService {
     constructor(
         @InjectRepository(TemplateCancellationRule)
         private readonly templateRepo: Repository<TemplateCancellationRule>,
+        private readonly auditService: AuditService,
     ) { }
 
-    async createTemplateCancellationRule(hotelId: number, dto: CreateTemplateCancellationRuleDto) {
+    async createTemplateCancellationRule(hotelId: number, dto: CreateTemplateCancellationRuleDto, currentUser?: RequestUser) {
         const template = this.templateRepo.create({
             ...dto,
             hotelId,
         });
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyCreateAudit(template, actor);
         return this.templateRepo.save(template);
     }
 
@@ -52,9 +57,11 @@ export class TemplateCancellationService {
         return item;
     }
 
-    async update(hotelId: number, id: number, dto: UpdateTemplateCancellationRuleDto) {
+    async update(hotelId: number, id: number, dto: UpdateTemplateCancellationRuleDto, currentUser?: RequestUser) {
         const item = await this.findOne(hotelId, id);
         Object.assign(item, dto);
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(item, actor);
         return this.templateRepo.save(item);
     }
 

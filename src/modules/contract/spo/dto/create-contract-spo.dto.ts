@@ -11,6 +11,7 @@ export class CreateContractSpoDto {
 
     @IsOptional()
     @IsNumber()
+    @Min(0)
     @Type(() => Number)
     conditionValue?: number;
 

@@ -1,7 +1,7 @@
 import {
-    ExceptionFilter,
-    Catch,
     ArgumentsHost,
+    Catch,
+    ExceptionFilter,
     HttpException,
     HttpStatus,
     Logger,
@@ -12,16 +12,27 @@ import { AuthenticatedRequest as Request, AuthenticatedResponse as Response } fr
  * Global HTTP exception filter that normalizes error responses
  * into a consistent JSON structure for all API consumers.
  */
-@Catch(HttpException)
+@Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
     private readonly logger = new Logger(HttpExceptionFilter.name);
 
-    catch(exception: HttpException, host: ArgumentsHost): void {
+    catch(exception: unknown, host: ArgumentsHost): void {
         const ctx = host.switchToHttp();
         const response = ctx.getResponse<Response>();
         const request = ctx.getRequest<Request>();
-        const status = exception.getStatus();
-        const exceptionResponse = exception.getResponse();
+        const error = exception as { code?: string; message?: string; stack?: string };
+        const isHttpException = exception instanceof HttpException;
+        const isMulterSizeError = error?.code === 'LIMIT_FILE_SIZE';
+        const status = isHttpException
+            ? exception.getStatus()
+            : isMulterSizeError
+                ? HttpStatus.BAD_REQUEST
+                : HttpStatus.INTERNAL_SERVER_ERROR;
+        const exceptionResponse = isMulterSizeError
+            ? { message: 'The uploaded file is too large' }
+            : isHttpException
+                ? exception.getResponse()
+                : { message: error?.message ?? 'Internal server error' };
 
         const errorPayload =
             typeof exceptionResponse === 'string'
@@ -37,8 +48,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
         };
 
         this.logger.error(
-            `${request.method} ${request.url} → ${status}`,
-            exception.stack,
+            `${request.method} ${request.url} -> ${status}`,
+            error?.stack,
         );
 
         response.status(status).json(body);

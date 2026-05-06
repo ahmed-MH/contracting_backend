@@ -6,15 +6,22 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { Contract } from './entities/contract.entity';
-import { ContractStatus } from '../../../common/constants/enums';
+import { ContractMarketScope, ContractStatus, PaymentConditionType, PaymentMethodType } from '../../../common/constants/enums';
 import { Period } from './entities/period.entity';
 import { ContractRoom } from './entities/contract-room.entity';
 import { Affiliate } from '../../affiliate/entities/affiliate.entity';
 import { RoomType } from '../../hotel/entities/room-type.entity';
 import { Hotel } from '../../hotel/entities/hotel.entity';
+import { HotelBankAccount } from '../../hotel/entities/hotel-bank-account.entity';
 import { Arrangement } from '../../hotel/entities/arrangement.entity';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
+import { ContractPaymentPolicyDto, PaymentConditionBasis, PaymentDepositType, PaymentDueTrigger } from './dto/payment-policy.dto';
+import { ContractPaymentPolicy } from './payment-policy.types';
+
+type PaymentPolicyInput = Partial<Omit<CreateContractDto, 'paymentPolicy'> & Omit<UpdateContractDto, 'paymentPolicy'>> & {
+    paymentPolicy?: ContractPaymentPolicyDto | null;
+};
 import { CreatePeriodDto } from './dto/create-period.dto';
 import { CreateContractRoomDto } from './dto/create-contract-room.dto';
 import { DateUtil } from '../../../common/utils/date.util';
@@ -34,6 +41,8 @@ import { ContractCancellationRuleRoom } from '../cancellation/entities/contract-
 import { BatchUpsertPricesDto } from './dto/batch-upsert-prices.dto';
 import { ContractLine } from './entities/contract-line.entity';
 import { Price } from './entities/price.entity';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 import {
     ActivationDateRange,
     ActivationMissingRate,
@@ -63,15 +72,20 @@ export class ContractService {
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,
 
+        @InjectRepository(HotelBankAccount)
+        private readonly hotelBankAccountRepo: Repository<HotelBankAccount>,
+
         @InjectRepository(Arrangement)
         private readonly arrangementRepo: Repository<Arrangement>,
 
         private readonly dataSource: DataSource,
+        private readonly auditService: AuditService,
     ) { }
 
     // ─── Contract ─────────────────────────────────────────────────────
 
-    async createContract(hotelId: number, dto: CreateContractDto): Promise<Contract> {
+    async createContract(hotelId: number, dto: CreateContractDto, currentUser?: RequestUser): Promise<Contract> {
+        const actor = await this.auditService.resolveActor(currentUser);
         const start = new Date(dto.startDate);
         const end = new Date(dto.endDate);
 
@@ -104,15 +118,21 @@ export class ContractService {
             }
         }
 
+        const paymentPolicy = await this.normalizePaymentPolicy(hotelId, dto, null, dto.currency, hotel.defaultCurrency);
+        const legacyPayment = this.legacyFieldsFromPolicy(paymentPolicy);
         const contract = this.contractRepo.create({
             name: dto.name,
             startDate: start,
             endDate: end,
             currency: dto.currency,
+            ...legacyPayment,
+            paymentPolicy,
+            selectedHotelBankAccountId: paymentPolicy?.selectedHotelBankAccountId ?? dto.selectedHotelBankAccountId ?? null,
             affiliates,
             hotel,
             baseArrangementId: dto.baseArrangementId,
         });
+        this.auditService.applyCreateAudit(contract, actor);
 
         return this.contractRepo.save(contract);
     }
@@ -127,7 +147,7 @@ export class ContractService {
     async getContractDetails(hotelId: number, id: number): Promise<Contract> {
         const contract = await this.contractRepo.findOne({
             where: { id, hotelId },
-            relations: ['affiliates', 'periods', 'contractRooms', 'contractRooms.roomType', 'baseArrangement'],
+            relations: ['affiliates', 'periods', 'contractRooms', 'contractRooms.roomType', 'baseArrangement', 'selectedHotelBankAccount'],
         });
 
         if (!contract) {
@@ -137,10 +157,10 @@ export class ContractService {
         return contract;
     }
 
-    async updateContract(hotelId: number, id: number, dto: UpdateContractDto): Promise<Contract> {
+    async updateContract(hotelId: number, id: number, dto: UpdateContractDto, currentUser?: RequestUser): Promise<Contract> {
         const contract = await this.contractRepo.findOne({
             where: { id, hotelId },
-            relations: ['affiliates'],
+            relations: ['affiliates', 'hotel'],
         });
         if (!contract) {
             throw new NotFoundException(`Contract #${id} not found in hotel #${hotelId}`);
@@ -155,6 +175,29 @@ export class ContractService {
         if (dto.depositAmount !== undefined) contract.depositAmount = dto.depositAmount;
         if (dto.creditDays !== undefined) contract.creditDays = dto.creditDays;
         if (dto.paymentMethods !== undefined) contract.paymentMethods = dto.paymentMethods;
+        if (dto.selectedHotelBankAccountId !== undefined) contract.selectedHotelBankAccountId = dto.selectedHotelBankAccountId;
+        const shouldRefreshPaymentPolicy = dto.paymentPolicy !== undefined
+            || dto.paymentCondition !== undefined
+            || dto.depositAmount !== undefined
+            || dto.creditDays !== undefined
+            || dto.paymentMethods !== undefined
+            || dto.selectedHotelBankAccountId !== undefined;
+        if (shouldRefreshPaymentPolicy) {
+            const paymentPolicy = await this.normalizePaymentPolicy(
+                hotelId,
+                dto,
+                contract,
+                contract.currency,
+                contract.hotel?.defaultCurrency,
+            );
+            const legacyPayment = this.legacyFieldsFromPolicy(paymentPolicy);
+            contract.paymentPolicy = paymentPolicy;
+            contract.paymentCondition = legacyPayment.paymentCondition ?? null;
+            contract.depositAmount = legacyPayment.depositAmount ?? null;
+            contract.creditDays = legacyPayment.creditDays ?? null;
+            contract.paymentMethods = legacyPayment.paymentMethods ?? [];
+            contract.selectedHotelBankAccountId = paymentPolicy?.selectedHotelBankAccountId ?? null;
+        }
 
         if (dto.baseArrangementId !== undefined) {
             if (dto.baseArrangementId === null) {
@@ -190,13 +233,15 @@ export class ContractService {
             }
         }
 
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(contract, actor);
         return this.contractRepo.save(contract);
     }
 
     async validateActivation(hotelId: number, id: number): Promise<ActivationValidationResult> {
         const contract = await this.contractRepo.findOne({
             where: { id, hotelId },
-            relations: ['affiliates', 'baseArrangement'],
+            relations: ['affiliates', 'baseArrangement', 'hotel'],
         });
         if (!contract) {
             throw new NotFoundException(`Contract #${id} not found in hotel #${hotelId}`);
@@ -233,6 +278,20 @@ export class ContractService {
             errors.push({
                 code: 'MISSING_AFFILIATES',
                 message: 'Contract must have at least one affiliate / tour operator before activation',
+            });
+        }
+
+        const paymentPolicy = this.resolvePaymentPolicy(contract);
+        if (!paymentPolicy?.methods?.length) {
+            errors.push({
+                code: 'MISSING_PAYMENT_METHOD',
+                message: 'Contract must have at least one payment method before activation',
+            });
+        }
+        if (!paymentPolicy?.conditions?.length) {
+            errors.push({
+                code: 'MISSING_PAYMENT_CONDITION',
+                message: 'Contract must have at least one payment condition before activation',
             });
         }
 
@@ -289,6 +348,230 @@ export class ContractService {
                 invalidTargets,
             },
         };
+    }
+
+    private async normalizePaymentPolicy(
+        hotelId: number,
+        dto: PaymentPolicyInput,
+        current: Contract | null,
+        currency?: string | null,
+        hotelCurrency?: string | null,
+    ): Promise<ContractPaymentPolicy | null> {
+        const hasLegacyInput = dto.paymentCondition !== undefined
+            || dto.depositAmount !== undefined
+            || dto.creditDays !== undefined
+            || dto.paymentMethods !== undefined;
+        const selectedHotelBankAccountId = dto.paymentPolicy?.selectedHotelBankAccountId
+            ?? dto.selectedHotelBankAccountId
+            ?? current?.selectedHotelBankAccountId
+            ?? null;
+
+        let policy: ContractPaymentPolicy | null;
+        if (dto.paymentPolicy !== undefined) {
+            policy = dto.paymentPolicy ? { ...dto.paymentPolicy } as ContractPaymentPolicy : null;
+        } else if (hasLegacyInput || !current?.paymentPolicy) {
+            policy = this.paymentPolicyFromLegacy({
+                paymentCondition: dto.paymentCondition ?? current?.paymentCondition,
+                depositAmount: dto.depositAmount ?? current?.depositAmount,
+                creditDays: dto.creditDays ?? current?.creditDays,
+                paymentMethods: dto.paymentMethods ?? current?.paymentMethods,
+                selectedHotelBankAccountId,
+            }, currency, hotelCurrency);
+        } else {
+            policy = { ...current.paymentPolicy, selectedHotelBankAccountId };
+        }
+
+        if (!policy) return null;
+        policy.marketScope = policy.marketScope ?? this.defaultMarketScope(currency);
+        policy.methods = this.normalizeMethods(policy.methods ?? []);
+        policy.conditions = this.normalizeConditions(policy.conditions ?? []);
+        policy.deposit = policy.deposit ?? null;
+        policy.selectedHotelBankAccountId = selectedHotelBankAccountId;
+        policy.notes = policy.notes ?? null;
+
+        this.validatePaymentPolicy(policy);
+        await this.validateSelectedHotelBankAccount(hotelId, policy.selectedHotelBankAccountId);
+        return policy;
+    }
+
+    private paymentPolicyFromLegacy(
+        legacy: {
+            paymentCondition?: PaymentConditionType | null;
+            depositAmount?: number | string | null;
+            creditDays?: number | null;
+            paymentMethods?: PaymentMethodType[] | null;
+            selectedHotelBankAccountId?: number | null;
+        },
+        currency?: string | null,
+        hotelCurrency?: string | null,
+    ): ContractPaymentPolicy | null {
+        const methods = this.normalizeMethods((legacy.paymentMethods ?? []).map((type, index) => ({ type, isPrimary: index === 0 })));
+        const conditions: ContractPaymentPolicy['conditions'] = [];
+        const legacyCondition = this.normalizeConditionType(legacy.paymentCondition);
+        const depositAmount = Number(legacy.depositAmount ?? 0);
+        const creditDays = Number(legacy.creditDays ?? 0);
+
+        if (legacyCondition === PaymentConditionType.FULL_PREPAYMENT) {
+            conditions.push({ type: PaymentConditionType.FULL_PREPAYMENT, percentage: 100 });
+        }
+
+        if (legacyCondition === PaymentConditionType.PARTIAL_DEPOSIT || depositAmount > 0) {
+            conditions.push({ type: PaymentConditionType.PARTIAL_DEPOSIT });
+        }
+
+        if (creditDays > 0) {
+            conditions.push({
+                type: PaymentConditionType.CREDIT_DAYS_FROM_INVOICE,
+                days: creditDays,
+                basis: PaymentConditionBasis.INVOICE_ISSUE,
+            });
+        }
+
+        const deposit = depositAmount > 0
+            ? {
+                type: PaymentDepositType.AMOUNT,
+                value: depositAmount,
+                currency: (currency || hotelCurrency || 'TND').toUpperCase(),
+                dueTrigger: PaymentDueTrigger.BOOKING_CONFIRMATION,
+                refundable: false,
+            }
+            : null;
+
+        if (!methods.length && !conditions.length && !deposit && !legacy.selectedHotelBankAccountId) {
+            return null;
+        }
+
+        return {
+            marketScope: this.defaultMarketScope(currency),
+            methods,
+            conditions: this.normalizeConditions(conditions),
+            deposit,
+            selectedHotelBankAccountId: legacy.selectedHotelBankAccountId ?? null,
+            notes: null,
+        };
+    }
+
+    private resolvePaymentPolicy(contract: Contract): ContractPaymentPolicy | null {
+        return contract.paymentPolicy ?? this.paymentPolicyFromLegacy({
+            paymentCondition: contract.paymentCondition,
+            depositAmount: contract.depositAmount,
+            creditDays: contract.creditDays,
+            paymentMethods: contract.paymentMethods,
+            selectedHotelBankAccountId: contract.selectedHotelBankAccountId,
+        }, contract.currency, contract.hotel?.defaultCurrency);
+    }
+
+    private legacyFieldsFromPolicy(policy: ContractPaymentPolicy | null): {
+        paymentCondition: PaymentConditionType | null;
+        depositAmount: number | null;
+        creditDays: number | null;
+        paymentMethods: PaymentMethodType[];
+    } {
+        if (!policy) {
+            return {
+                paymentCondition: null,
+                depositAmount: null,
+                creditDays: null,
+                paymentMethods: [],
+            };
+        }
+
+        const fullPrepayment = policy.conditions.find((condition) => condition.type === PaymentConditionType.FULL_PREPAYMENT);
+        const partialDeposit = policy.conditions.find((condition) => condition.type === PaymentConditionType.PARTIAL_DEPOSIT);
+        const credit = policy.conditions.find((condition) => condition.type === PaymentConditionType.CREDIT_DAYS_FROM_INVOICE);
+        return {
+            paymentCondition: fullPrepayment?.type ?? partialDeposit?.type ?? policy.conditions[0]?.type ?? null,
+            depositAmount: policy.deposit?.type === PaymentDepositType.AMOUNT ? policy.deposit.value : null,
+            creditDays: credit?.days ?? null,
+            paymentMethods: policy.methods.map((method) => method.type),
+        };
+    }
+
+    private normalizeMethods(methods: Array<{ type: PaymentMethodType; isPrimary?: boolean }>): ContractPaymentPolicy['methods'] {
+        const seen = new Set<PaymentMethodType>();
+        const normalized = methods
+            .filter((method) => method?.type && !seen.has(method.type) && (seen.add(method.type), true))
+            .map((method) => ({ type: method.type, isPrimary: Boolean(method.isPrimary) }));
+
+        if (normalized.length > 0 && !normalized.some((method) => method.isPrimary)) {
+            normalized[0].isPrimary = true;
+        }
+
+        return normalized.map((method, index) => ({
+            ...method,
+            isPrimary: method.isPrimary && !normalized.slice(0, index).some((entry) => entry.isPrimary),
+        }));
+    }
+
+    private normalizeConditions(conditions: ContractPaymentPolicy['conditions']): ContractPaymentPolicy['conditions'] {
+        const normalizedConditions: ContractPaymentPolicy['conditions'] = [];
+        for (const condition of conditions) {
+            const type = this.normalizeConditionType(condition.type);
+            if (!type) continue;
+            if (type === PaymentConditionType.FULL_PREPAYMENT) {
+                normalizedConditions.push({ ...condition, type, percentage: 100 });
+                continue;
+            }
+            if (type === PaymentConditionType.CREDIT_DAYS_FROM_INVOICE) {
+                normalizedConditions.push({ ...condition, type, basis: condition.basis ?? PaymentConditionBasis.INVOICE_ISSUE });
+                continue;
+            }
+            normalizedConditions.push({ ...condition, type });
+        }
+        return normalizedConditions;
+    }
+
+    private normalizeConditionType(type?: PaymentConditionType | null): PaymentConditionType | null {
+        if (!type) return null;
+        if (type === PaymentConditionType.PREPAYMENT_100) return PaymentConditionType.FULL_PREPAYMENT;
+        if (type === PaymentConditionType.DEPOSIT) return PaymentConditionType.PARTIAL_DEPOSIT;
+        return type;
+    }
+
+    private validatePaymentPolicy(policy: ContractPaymentPolicy): void {
+        for (const condition of policy.conditions) {
+            if (condition.type === PaymentConditionType.FULL_PREPAYMENT && condition.percentage !== 100) {
+                throw new BadRequestException('FULL_PREPAYMENT requires percentage 100.');
+            }
+            if (condition.type === PaymentConditionType.PARTIAL_DEPOSIT) {
+                const isValidDeposit = Boolean(policy.deposit && Number(policy.deposit.value) > 0);
+                const isValidPercentage = typeof condition.percentage === 'number' && condition.percentage > 0 && condition.percentage < 100;
+                if (!isValidDeposit && !isValidPercentage) {
+                    throw new BadRequestException('PARTIAL_DEPOSIT requires a positive amount or percentage below 100.');
+                }
+            }
+            if (condition.type === PaymentConditionType.CREDIT_DAYS_FROM_INVOICE) {
+                if (!condition.days || condition.days <= 0 || !condition.basis) {
+                    throw new BadRequestException('CREDIT_DAYS_FROM_INVOICE requires positive days and a basis.');
+                }
+            }
+        }
+
+        if (policy.deposit) {
+            if (policy.deposit.type === PaymentDepositType.PERCENTAGE && policy.deposit.value > 100) {
+                throw new BadRequestException('Deposit percentage cannot exceed 100.');
+            }
+            if (policy.deposit.type === PaymentDepositType.AMOUNT && !policy.deposit.currency) {
+                throw new BadRequestException('Amount deposits require a currency.');
+            }
+        }
+    }
+
+    private async validateSelectedHotelBankAccount(hotelId: number, selectedHotelBankAccountId?: number | null): Promise<void> {
+        if (!selectedHotelBankAccountId) return;
+
+        const bankAccount = await this.hotelBankAccountRepo.findOne({
+            where: { id: selectedHotelBankAccountId, hotelId },
+        });
+        if (!bankAccount) {
+            throw new BadRequestException(`Hotel bank account #${selectedHotelBankAccountId} does not belong to hotel #${hotelId}.`);
+        }
+    }
+
+    private defaultMarketScope(currency?: string | null): ContractMarketScope {
+        return (currency || '').toUpperCase() === 'TND'
+            ? ContractMarketScope.NATIONAL
+            : ContractMarketScope.INTERNATIONAL;
     }
 
     private validatePeriods(
@@ -573,7 +856,7 @@ export class ContractService {
         return date ? date.toISOString().slice(0, 10) : 'invalid-date';
     }
 
-    async addPeriod(hotelId: number, contractId: number, dto: CreatePeriodDto): Promise<Period> {
+    async addPeriod(hotelId: number, contractId: number, dto: CreatePeriodDto, currentUser?: RequestUser): Promise<Period> {
         const contract = await this.contractRepo.findOne({
             where: { id: contractId, hotelId },
             relations: ['periods'],
@@ -626,6 +909,8 @@ export class ContractService {
             }
         }
 
+        await this.touchContract(contract.id, currentUser);
+
         // Return the saved period specifically (in case it needed to be returned by id)
         const finalPeriod = allPeriods.find(p => p.id === period.id);
         return finalPeriod || period;
@@ -633,7 +918,7 @@ export class ContractService {
 
     // ─── Contract Room (with duplicate guard) ─────────────────────────
 
-    async addContractRoom(hotelId: number, contractId: number, dto: CreateContractRoomDto): Promise<ContractRoom> {
+    async addContractRoom(hotelId: number, contractId: number, dto: CreateContractRoomDto, currentUser?: RequestUser): Promise<ContractRoom> {
         const contract = await this.contractRepo.findOne({
             where: { id: contractId, hotelId },
             relations: ['contractRooms', 'contractRooms.roomType'],
@@ -670,12 +955,14 @@ export class ContractService {
             roomType,
         });
 
-        return this.contractRoomRepo.save(contractRoom);
+        const savedContractRoom = await this.contractRoomRepo.save(contractRoom);
+        await this.touchContract(contract.id, currentUser);
+        return savedContractRoom;
     }
 
     // ─── Delete Period (with junction cleanup) ────────────────────────
 
-    async deletePeriod(hotelId: number, contractId: number, periodId: number): Promise<void> {
+    async deletePeriod(hotelId: number, contractId: number, periodId: number, currentUser?: RequestUser): Promise<void> {
         const contract = await this.contractRepo.findOne({
             where: { id: contractId, hotelId },
             relations: ['periods'],
@@ -715,14 +1002,16 @@ export class ContractService {
             const newName = `Période ${i + 1}`;
             if (remainingPeriods[i].name !== newName && remainingPeriods[i].id) {
                 remainingPeriods[i].name = newName;
-                await this.periodRepo.update(remainingPeriods[i].id, { name: newName });
+                await this.periodRepo.save(remainingPeriods[i]);
             }
         }
+
+        await this.touchContract(contract.id, currentUser);
     }
 
     // ─── Delete Contract Room (with junction cleanup) ─────────────────
 
-    async deleteContractRoom(hotelId: number, contractId: number, roomId: number): Promise<void> {
+    async deleteContractRoom(hotelId: number, contractId: number, roomId: number, currentUser?: RequestUser): Promise<void> {
         const contract = await this.contractRepo.findOne({
             where: { id: contractId, hotelId },
         });
@@ -752,6 +1041,7 @@ export class ContractService {
         }
 
         await this.contractRoomRepo.remove(room);
+        await this.touchContract(contract.id, currentUser);
     }
 
     // ─── Prices (Rates Grid) ──────────────────────────────────────────
@@ -785,7 +1075,7 @@ export class ContractService {
         return contractLines;
     }
 
-    async batchUpsertPrices(hotelId: number, id: number, dto: BatchUpsertPricesDto) {
+    async batchUpsertPrices(hotelId: number, id: number, dto: BatchUpsertPricesDto, currentUser?: RequestUser) {
         const contract = await this.contractRepo.findOne({
             where: { id, hotelId },
             relations: ['periods', 'contractRooms'],
@@ -857,6 +1147,8 @@ export class ContractService {
             }
         });
 
+        await this.touchContract(contract.id, currentUser);
+
         return { success: true, message: `${dto.cells.length} cells processed.` };
     }
 
@@ -866,5 +1158,12 @@ export class ContractService {
             ? prices.find((price) => price.arrangement?.id === baseArrangementId)
             : undefined;
         return [basePrice ?? prices[0]];
+    }
+
+    private async touchContract(contractId: number, currentUser?: RequestUser): Promise<void> {
+        const actor = await this.auditService.resolveActor(currentUser);
+        const patch = { id: contractId } as Contract;
+        this.auditService.applyUpdateAudit(patch, actor);
+        await this.contractRepo.save(patch);
     }
 }

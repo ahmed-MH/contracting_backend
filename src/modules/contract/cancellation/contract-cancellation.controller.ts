@@ -2,8 +2,10 @@ import { Controller, Get, Post, Body, Param, Put, Delete, ParseIntPipe, Req } fr
 import { ContractCancellationService } from './contract-cancellation.service';
 import { CreateContractCancellationRuleDto, UpdateContractCancellationRuleDto, ImportCancellationRuleDto } from './dto/contract-cancellation.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { UserRole } from '../../../common/constants/enums';
 import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('contracts/:contractId/cancellation-rules')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -31,8 +33,9 @@ export class ContractCancellationController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Body() dto: CreateContractCancellationRuleDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.service.create(this.getHotelId(req), contractId, dto);
+        return this.service.create(this.getHotelId(req), contractId, dto, user);
     }
 
     @Post('import')
@@ -40,8 +43,9 @@ export class ContractCancellationController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Body() dto: ImportCancellationRuleDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.service.importFromTemplate(this.getHotelId(req), contractId, dto);
+        return this.service.importFromTemplate(this.getHotelId(req), contractId, dto, user);
     }
 
     @Put(':id')
@@ -50,8 +54,9 @@ export class ContractCancellationController {
         @Param('contractId', ParseIntPipe) contractId: number,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateContractCancellationRuleDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.service.update(this.getHotelId(req), contractId, id, dto);
+        return this.service.update(this.getHotelId(req), contractId, id, dto, user);
     }
 
     @Delete(':id')
@@ -59,7 +64,8 @@ export class ContractCancellationController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Param('id', ParseIntPipe) id: number,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.service.delete(this.getHotelId(req), contractId, id);
+        return this.service.delete(this.getHotelId(req), contractId, id, user);
     }
 }

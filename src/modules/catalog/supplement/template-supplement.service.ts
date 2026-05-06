@@ -7,6 +7,8 @@ import { CreateTemplateSupplementDto } from './dto/create-template-supplement.dt
 import { UpdateTemplateSupplementDto } from './dto/update-template-supplement.dto';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { PageDto } from '../../../common/dto/page.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class TemplateSupplementService {
@@ -16,6 +18,7 @@ export class TemplateSupplementService {
         private readonly templateSupplementRepo: Repository<TemplateSupplement>,
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,
+        private readonly auditService: AuditService,
     ) { }
 
     async findAllTemplateSupplements(
@@ -48,6 +51,7 @@ export class TemplateSupplementService {
     async createTemplateSupplement(
         hotelId: number,
         dto: CreateTemplateSupplementDto,
+        currentUser?: RequestUser,
     ): Promise<TemplateSupplement> {
         const hotel = await this.hotelRepo.findOne({ where: { id: hotelId } });
         if (!hotel) {
@@ -58,6 +62,8 @@ export class TemplateSupplementService {
             ...dto,
             hotel,
         });
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyCreateAudit(supplement, actor);
 
         return this.templateSupplementRepo.save(supplement);
     }
@@ -66,6 +72,7 @@ export class TemplateSupplementService {
         hotelId: number,
         id: number,
         dto: UpdateTemplateSupplementDto,
+        currentUser?: RequestUser,
     ): Promise<TemplateSupplement> {
         const supplement = await this.templateSupplementRepo.findOne({
             where: { id, hotel: { id: hotelId } },
@@ -74,6 +81,8 @@ export class TemplateSupplementService {
             throw new NotFoundException(`TemplateSupplement #${id} not found in hotel #${hotelId}`);
         }
         Object.assign(supplement, dto);
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(supplement, actor);
         return this.templateSupplementRepo.save(supplement);
     }
 

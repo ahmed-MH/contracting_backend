@@ -3,26 +3,27 @@ import {
     Post,
     Get,
     Param,
+    Query,
     Body,
     Headers,
-    Request,
     Res,
     ParseIntPipe,
+    Patch,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ProformaService } from './proforma.service';
-import { ProformaPdfService } from './proforma-pdf.service';
 import { CreateProformaDto } from './dto/create-proforma.dto';
+import { ListIssuedProformasDto } from './dto/list-issued-proformas.dto';
+import { UpdateProformaPreviewSettingsDto } from './dto/update-proforma-preview-settings.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/constants/enums';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../common/interfaces/request.interface';
 
 @Controller('proforma')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
 export class ProformaController {
-    constructor(
-        private readonly proformaService: ProformaService,
-        private readonly pdfService: ProformaPdfService,
-    ) {}
+    constructor(private readonly proformaService: ProformaService) {}
 
     /**
      * Create a proforma invoice from a simulation snapshot.
@@ -30,13 +31,12 @@ export class ProformaController {
     @Post()
     async create(
         @Headers('x-hotel-id') hotelId: string,
-        @Request() req: any,
+        @CurrentUser() user: RequestUser,
         @Body() dto: CreateProformaDto,
     ) {
-        const userId = req.user?.id ?? req.user?.sub;
         return this.proformaService.create(
             parseInt(hotelId, 10),
-            userId,
+            user,
             dto,
         );
     }
@@ -47,6 +47,14 @@ export class ProformaController {
     @Get()
     async findAll(@Headers('x-hotel-id') hotelId: string) {
         return this.proformaService.findAll(parseInt(hotelId, 10));
+    }
+
+    @Get('invoices')
+    async findIssuedInvoices(
+        @Headers('x-hotel-id') hotelId: string,
+        @Query() filters: ListIssuedProformasDto,
+    ) {
+        return this.proformaService.findIssuedInvoices(parseInt(hotelId, 10), filters);
     }
 
     /**
@@ -61,27 +69,69 @@ export class ProformaController {
     }
 
     /**
-     * Download the proforma as a PDF.
+     * Recalculate the saved preview document after finalization settings change.
      */
-    @Get(':id/pdf')
-    async downloadPdf(
+    @Patch(':id/preview-settings')
+    async updatePreviewSettings(
         @Headers('x-hotel-id') hotelId: string,
         @Param('id', ParseIntPipe) id: number,
+        @Body() dto: UpdateProformaPreviewSettingsDto,
+        @CurrentUser() user?: RequestUser,
+    ) {
+        return this.proformaService.updatePreviewSettings(parseInt(hotelId, 10), id, dto, user);
+    }
+
+    @Post(':id/download')
+    async issueAndDownload(
+        @Headers('x-hotel-id') hotelId: string,
+        @Param('id', ParseIntPipe) id: number,
+        @Query('language') language: string | undefined,
+        @CurrentUser() user: RequestUser,
         @Res() res: Response,
     ) {
-        const proforma = await this.proformaService.findOne(
+        const result = await this.proformaService.downloadPdf(
             parseInt(hotelId, 10),
             id,
+            language,
+            user,
         );
-
-        const pdfBuffer = await this.pdfService.generate(proforma);
 
         res.set({
             'Content-Type': 'application/pdf',
-            'Content-Disposition': `attachment; filename="${proforma.reference}.pdf"`,
-            'Content-Length': pdfBuffer.length,
+            'Content-Disposition': `attachment; filename="${result.filename}"`,
+            'Content-Length': result.buffer.length,
+            'X-Proforma-Reference': result.proforma.reference,
+            'X-Proforma-Status': result.proforma.status,
+            'X-Proforma-Issued-Now': result.issuedNow ? '1' : '0',
+            'X-Proforma-Id': String(result.proforma.id),
         });
 
-        res.end(pdfBuffer);
+        res.end(result.buffer);
+    }
+
+    @Get(':id/pdf')
+    async downloadIssuedPdf(
+        @Headers('x-hotel-id') hotelId: string,
+        @Param('id', ParseIntPipe) id: number,
+        @Query('language') language: string | undefined,
+        @Res() res: Response,
+    ) {
+        const result = await this.proformaService.downloadIssuedPdf(
+            parseInt(hotelId, 10),
+            id,
+            language,
+        );
+
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="${result.filename}"`,
+            'Content-Length': result.buffer.length,
+            'X-Proforma-Reference': result.proforma.reference,
+            'X-Proforma-Status': result.proforma.status,
+            'X-Proforma-Issued-Now': '0',
+            'X-Proforma-Id': String(result.proforma.id),
+        });
+
+        res.end(result.buffer);
     }
 }

@@ -20,7 +20,7 @@ export class ExchangeRateController {
         @Body() createDto: CreateExchangeRateDto,
         @CurrentUser() user?: RequestUser,
     ) {
-        return this.exchangeRateService.create(hotelId, createDto, user?.email);
+        return this.exchangeRateService.create(hotelId, createDto, user);
     }
 
     @Get()
@@ -46,7 +46,7 @@ export class ExchangeRateController {
         @Body() updateDto: UpdateExchangeRateDto,
         @CurrentUser() user?: RequestUser,
     ) {
-        return this.exchangeRateService.update(hotelId, id, updateDto, user?.email);
+        return this.exchangeRateService.update(hotelId, id, updateDto, user);
     }
 
     @Delete(':id')

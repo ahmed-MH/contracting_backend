@@ -6,7 +6,8 @@ import { UpdateTemplateReductionDto } from './dto/update-template-reduction.dto'
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/enums';
-import { Request } from 'express';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('hotel')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -38,8 +39,9 @@ export class TemplateReductionController {
     createTemplateReduction(
         @Req() req: AuthenticatedRequest,
         @Body() dto: CreateTemplateReductionDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.templateReductionService.createTemplateReduction(this.getHotelId(req), dto);
+        return this.templateReductionService.createTemplateReduction(this.getHotelId(req), dto, user);
     }
 
     @Patch('reductions/:id')
@@ -47,8 +49,9 @@ export class TemplateReductionController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateTemplateReductionDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.templateReductionService.updateTemplateReduction(this.getHotelId(req), id, dto);
+        return this.templateReductionService.updateTemplateReduction(this.getHotelId(req), id, dto, user);
     }
 
     @Delete('reductions/:id')

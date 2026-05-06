@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ContractLine } from '../contract/core/entities/contract-line.entity';
+import { Contract } from '../contract/core/entities/contract.entity';
 import { Price } from '../contract/core/entities/price.entity';
 import { Promotion } from '../contract/core/entities/promotion.entity';
 import { Period } from '../contract/core/entities/period.entity';
@@ -13,6 +14,7 @@ import { PricingController } from './pricing.controller';
     imports: [
         TypeOrmModule.forFeature([
             ContractLine,
+            Contract,
             Price,
             Promotion,
             Period,

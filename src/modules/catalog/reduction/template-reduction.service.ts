@@ -7,6 +7,8 @@ import { CreateTemplateReductionDto } from './dto/create-template-reduction.dto'
 import { UpdateTemplateReductionDto } from './dto/update-template-reduction.dto';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { PageDto } from '../../../common/dto/page.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class TemplateReductionService {
@@ -16,6 +18,7 @@ export class TemplateReductionService {
         private readonly templateReductionRepo: Repository<TemplateReduction>,
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,
+        private readonly auditService: AuditService,
     ) { }
 
     async findAllTemplateReductions(
@@ -48,12 +51,15 @@ export class TemplateReductionService {
     async createTemplateReduction(
         hotelId: number,
         dto: CreateTemplateReductionDto,
+        currentUser?: RequestUser,
     ): Promise<TemplateReduction> {
         const hotel = await this.hotelRepo.findOne({ where: { id: hotelId } });
         if (!hotel) {
             throw new NotFoundException(`Hotel #${hotelId} not found`);
         }
         const reduction = this.templateReductionRepo.create({ ...dto, hotel });
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyCreateAudit(reduction, actor);
         return this.templateReductionRepo.save(reduction);
     }
 
@@ -61,6 +67,7 @@ export class TemplateReductionService {
         hotelId: number,
         id: number,
         dto: UpdateTemplateReductionDto,
+        currentUser?: RequestUser,
     ): Promise<TemplateReduction> {
         const reduction = await this.templateReductionRepo.findOne({
             where: { id, hotelId },
@@ -69,6 +76,8 @@ export class TemplateReductionService {
             throw new NotFoundException(`TemplateReduction #${id} not found in hotel #${hotelId}`);
         }
         Object.assign(reduction, dto);
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(reduction, actor);
         return this.templateReductionRepo.save(reduction);
     }
 

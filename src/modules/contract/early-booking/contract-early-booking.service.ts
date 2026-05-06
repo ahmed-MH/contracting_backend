@@ -9,6 +9,8 @@ import { ContractRoom } from '../core/entities/contract-room.entity';
 import { Period } from '../core/entities/period.entity';
 import { TemplateEarlyBooking } from '../../catalog/early-booking/entities/template-early-booking.entity';
 import { UpdateContractEarlyBookingDto } from './dto/update-contract-early-booking.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class ContractEarlyBookingService {
@@ -33,6 +35,7 @@ export class ContractEarlyBookingService {
 
         @InjectRepository(TemplateEarlyBooking)
         private readonly templateRepo: Repository<TemplateEarlyBooking>,
+        private readonly auditService: AuditService,
     ) { }
 
     private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
@@ -110,6 +113,7 @@ export class ContractEarlyBookingService {
         hotelId: number,
         contractId: number,
         templateId: number,
+        currentUser?: RequestUser,
     ): Promise<ContractEarlyBooking> {
         const contract = await this.findContractOrThrow(hotelId, contractId);
 
@@ -144,6 +148,7 @@ export class ContractEarlyBookingService {
         const periods = await this.periodRepo.find({ where: { contract: { id: contractId, hotelId } } });
         const periodJunctions = periods.map(period => this.ebPeriodRepo.create({ contractEarlyBooking: savedEb, period }));
         await this.ebPeriodRepo.save(periodJunctions);
+        await this.touchContract(contract, currentUser);
 
         return savedEb;
     }
@@ -153,6 +158,7 @@ export class ContractEarlyBookingService {
         hotelId: number,
         id: number,
         dto: UpdateContractEarlyBookingDto,
+        currentUser?: RequestUser,
     ): Promise<ContractEarlyBooking> {
         const eb = await this.findEarlyBookingOrThrow(hotelId, id, [
             'applicableContractRooms',
@@ -223,6 +229,8 @@ export class ContractEarlyBookingService {
             }
         }
 
+        await this.touchContractById(hotelId, contractId, currentUser);
+
         // Reload with fresh relations
         return this.ebRepo.findOne({
             where: { id, contract: { hotelId } },
@@ -237,8 +245,20 @@ export class ContractEarlyBookingService {
     }
 
     // Hard delete a contract early booking
-    async remove(hotelId: number, id: number): Promise<void> {
-        const eb = await this.findEarlyBookingOrThrow(hotelId, id);
+    async remove(hotelId: number, id: number, currentUser?: RequestUser): Promise<void> {
+        const eb = await this.findEarlyBookingOrThrow(hotelId, id, ['contract']);
         await this.ebRepo.remove(eb);
+        await this.touchContract(eb.contract, currentUser);
+    }
+
+    private async touchContractById(hotelId: number, contractId: number, currentUser?: RequestUser): Promise<void> {
+        const contract = await this.findContractOrThrow(hotelId, contractId);
+        await this.touchContract(contract, currentUser);
+    }
+
+    private async touchContract(contract: Contract, currentUser?: RequestUser): Promise<void> {
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(contract, actor);
+        await this.contractRepo.save(contract);
     }
 }

@@ -7,6 +7,8 @@ import { CreateTemplateMonoparentalRuleDto } from './dto/create-template-monopar
 import { UpdateTemplateMonoparentalRuleDto } from './dto/update-template-monoparental-rule.dto';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { PageDto } from '../../../common/dto/page.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class TemplateMonoparentalRuleService {
@@ -16,6 +18,7 @@ export class TemplateMonoparentalRuleService {
         private readonly templateMonoparentalRuleRepo: Repository<TemplateMonoparentalRule>,
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,
+        private readonly auditService: AuditService,
     ) { }
 
     async findAllTemplateMonoparentalRules(
@@ -48,12 +51,15 @@ export class TemplateMonoparentalRuleService {
     async createTemplateMonoparentalRule(
         hotelId: number,
         dto: CreateTemplateMonoparentalRuleDto,
+        currentUser?: RequestUser,
     ): Promise<TemplateMonoparentalRule> {
         const hotel = await this.hotelRepo.findOne({ where: { id: hotelId } });
         if (!hotel) {
             throw new NotFoundException(`Hotel #${hotelId} not found`);
         }
         const rule = this.templateMonoparentalRuleRepo.create({ ...dto, hotel });
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyCreateAudit(rule, actor);
         return this.templateMonoparentalRuleRepo.save(rule);
     }
 
@@ -61,6 +67,7 @@ export class TemplateMonoparentalRuleService {
         hotelId: number,
         id: number,
         dto: UpdateTemplateMonoparentalRuleDto,
+        currentUser?: RequestUser,
     ): Promise<TemplateMonoparentalRule> {
         const rule = await this.templateMonoparentalRuleRepo.findOne({
             where: { id, hotelId },
@@ -69,6 +76,8 @@ export class TemplateMonoparentalRuleService {
             throw new NotFoundException(`TemplateMonoparentalRule #${id} not found in hotel #${hotelId}`);
         }
         Object.assign(rule, dto);
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(rule, actor);
         return this.templateMonoparentalRuleRepo.save(rule);
     }
 

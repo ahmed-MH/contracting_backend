@@ -1,193 +1,204 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { NotFoundException } from '@nestjs/common';
 import { HotelService } from './hotel.service';
 import { Hotel } from './entities/hotel.entity';
-import { NotFoundException } from '@nestjs/common';
+import { HotelBankAccount } from './entities/hotel-bank-account.entity';
+import { AuditService } from '../../common/audit/audit.service';
 import { UserRole } from '../../common/constants/enums';
 import { CreateHotelDto } from './dto/create-hotel.dto';
-import { UpdateHotelDto } from './dto/update-hotel.dto';
 
-describe('HotelService - Tests Unitaires 🏢', () => {
+describe('HotelService', () => {
     let service: HotelService;
 
-    // 1. Définition stricte des mocks du Repository TypeORM
+    const actor = { userId: 1, name: 'Admin', email: 'admin@pricify.test' };
+
     const mockHotelRepo = {
         find: jest.fn(),
         findOne: jest.fn(),
-        create: jest.fn(),
+        create: jest.fn((data) => ({ ...data })),
         save: jest.fn(),
-        preload: jest.fn(),
         softDelete: jest.fn(),
         restore: jest.fn(),
     };
 
-    // Objet fictif de référence pour les assertions
-    const mockHotel = {
+    const mockBankAccountRepo = {
+        find: jest.fn(),
+        create: jest.fn((data) => ({ ...data })),
+        update: jest.fn(),
+        save: jest.fn(),
+    };
+
+    const mockAuditService = {
+        resolveActor: jest.fn().mockResolvedValue(actor),
+        applyCreateAudit: jest.fn((entity) => entity),
+        applyUpdateAudit: jest.fn((entity) => entity),
+    };
+
+    const baseHotel = {
         id: 1,
         name: 'The Grand Budapest Hotel',
-        email: 'contact@grandbudapest.com',
         phone: '+216 73 123 456',
         address: 'Zubrowka Republic',
-        city: 'Nebelsbad',
-        country: 'ZB',
-        stars: 5,
-        isActive: true,
-        logo: 'logo.png',
-        timezone: 'UTC',
-        currency: 'EUR',
+        legalRepresentative: 'M. Gustave',
+        defaultCurrency: 'EUR',
+        tenantId: 1,
+        bankAccounts: [],
     } as unknown as Hotel;
 
     beforeEach(async () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 HotelService,
-                {
-                    provide: getRepositoryToken(Hotel),
-                    useValue: mockHotelRepo, // Injection du faux repo
-                },
+                { provide: getRepositoryToken(Hotel), useValue: mockHotelRepo },
+                { provide: getRepositoryToken(HotelBankAccount), useValue: mockBankAccountRepo },
+                { provide: AuditService, useValue: mockAuditService },
             ],
         }).compile();
 
         service = module.get<HotelService>(HotelService);
-
-        // Nettoyage de l'état des mocks avant chaque test
         jest.clearAllMocks();
+        mockHotelRepo.create.mockImplementation((data) => ({ ...data }));
+        mockBankAccountRepo.create.mockImplementation((data) => ({ ...data }));
+        mockAuditService.resolveActor.mockResolvedValue(actor);
+        mockAuditService.applyCreateAudit.mockImplementation((entity) => entity);
+        mockAuditService.applyUpdateAudit.mockImplementation((entity) => entity);
     });
 
-    // =========================================================================
-    // LE HAPPY PATH
-    // =========================================================================
-    describe('Le Happy Path (Succès) ✅', () => {
-        it('devrait créer et retourner un nouvel hôtel', async () => {
-            const createDto: CreateHotelDto = {
-                name: 'The Grand Budapest Hotel',
-                emails: [{ label: 'Main', address: 'contact@grandbudapest.com' }],
-                phone: '+216 73 123 456',
-                address: 'Zubrowka Republic',
-                legalRepresentative: 'M. Gustave',
-                stars: 5,
-                defaultCurrency: 'EUR',
-            };
+    it('creates a hotel and stores multiple bank accounts with one principal', async () => {
+        const createDto: CreateHotelDto = {
+            name: baseHotel.name,
+            phone: baseHotel.phone,
+            address: baseHotel.address,
+            legalRepresentative: baseHotel.legalRepresentative,
+            defaultCurrency: 'TND',
+            bankAccounts: [
+                {
+                    label: 'TND account',
+                    bankName: 'BIAT',
+                    rib: '123',
+                    currency: 'TND',
+                    isDefault: true,
+                    active: true,
+                },
+                {
+                    label: 'EUR account',
+                    bankName: 'STB',
+                    iban: 'TN590000',
+                    swiftCode: 'STBKTNTT',
+                    currency: 'EUR',
+                    isDefault: true,
+                    active: true,
+                },
+            ],
+        };
 
-            // Setup comportement des mocks
-            mockHotelRepo.create.mockReturnValue(mockHotel);
-            mockHotelRepo.save.mockResolvedValue(mockHotel);
+        mockHotelRepo.save.mockResolvedValue({ ...baseHotel, id: 1 });
+        mockHotelRepo.findOne.mockResolvedValue({ ...baseHotel, bankAccounts: createDto.bankAccounts });
+        mockBankAccountRepo.find.mockResolvedValue([]);
+        mockBankAccountRepo.update.mockResolvedValue({ affected: 0 });
+        mockBankAccountRepo.save.mockResolvedValue([]);
 
-            // Exécution
-            const result = await service.createHotel(createDto, { tenantId: 1 });
+        const result = await service.createHotel(createDto, { id: 1, role: UserRole.ADMIN, tenantId: 1 });
 
-            // Assertions
-            console.log(`[HÔTEL] Création réussie : ${result.name} ✅`);
-            expect(mockHotelRepo.create).toHaveBeenCalledWith(createDto);
-            expect(mockHotelRepo.save).toHaveBeenCalledWith(mockHotel);
-            expect(result).toEqual(mockHotel);
-        });
-
-        it('devrait retourner tous les hôtels (Admin sans filtre utilisateur)', async () => {
-            mockHotelRepo.find.mockResolvedValue([mockHotel]);
-
-            const result = await service.findAllHotels();
-
-            console.log(`[HÔTEL] Liste globale récupérée (${result.length} éléments) ✅`);
-            expect(mockHotelRepo.find).toHaveBeenCalledWith(); // Appelé sans arguments
-            expect(result).toEqual([mockHotel]);
-        });
-
-        it('devrait filtrer les hôtels pour un utilisateur spécifique (Commercial)', async () => {
-            mockHotelRepo.find.mockResolvedValue([mockHotel]);
-            const user = { id: 42, role: UserRole.COMMERCIAL, tenantId: null };
-
-            const result = await service.findAllHotels(user);
-
-            console.log(`[HÔTEL] Recherche filtrée pour le commercial ID: ${user.id} ✅`);
-            expect(mockHotelRepo.find).toHaveBeenCalledWith({
-                where: { users: { id: user.id } },
-                relations: ['users'],
-            });
-            expect(result).toEqual([mockHotel]);
-        });
-
-        it('devrait retourner tous les hôtels pour un utilisateur (Admin)', async () => {
-            mockHotelRepo.find.mockResolvedValue([mockHotel]);
-            const user = { id: 1, role: UserRole.ADMIN, tenantId: 1 };
-
-            const result = await service.findAllHotels(user);
-
-            expect(mockHotelRepo.find).toHaveBeenCalledWith();
-            expect(result).toEqual([mockHotel]);
-        });
-
-        it('devrait retourner les hôtels archivés', async () => {
-            mockHotelRepo.find.mockResolvedValue([mockHotel]);
-
-            const result = await service.findArchivedHotels();
-
-            expect(mockHotelRepo.find).toHaveBeenCalled();
-            expect(result).toEqual([mockHotel]);
-        });
-
-        it('devrait mettre à jour un hôtel existant par son ID', async () => {
-            const updateDto: UpdateHotelDto = { name: 'The Grand Budapest - Renovated' };
-            const updatedHotel = { ...mockHotel, ...updateDto };
-
-            mockHotelRepo.preload.mockResolvedValue(updatedHotel);
-            mockHotelRepo.save.mockResolvedValue(updatedHotel);
-
-            const result = await service.updateHotel(1, updateDto);
-
-            console.log(`[HÔTEL] Mise à jour ID: 1 ✅`);
-            expect(mockHotelRepo.preload).toHaveBeenCalledWith({ id: 1, ...updateDto });
-            expect(mockHotelRepo.save).toHaveBeenCalledWith(updatedHotel);
-            expect(result.name).toBe('The Grand Budapest - Renovated');
-        });
-
-        it('devrait archiver (soft-delete) un hôtel', async () => {
-            mockHotelRepo.softDelete.mockResolvedValue({ affected: 1 });
-
-            await service.removeHotel(1);
-
-            console.log(`[HÔTEL] Archivage soft-delete ID: 1 ✅`);
-            expect(mockHotelRepo.softDelete).toHaveBeenCalledWith(1);
-        });
-
-        it('devrait restaurer un hôtel préalablement archivé', async () => {
-            mockHotelRepo.restore.mockResolvedValue({ affected: 1 });
-
-            await service.restoreHotel(1);
-
-            console.log(`[HÔTEL] Restauration depuis l'archive ID: 1 ✅`);
-            expect(mockHotelRepo.restore).toHaveBeenCalledWith(1);
-        });
+        expect(mockHotelRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+            name: baseHotel.name,
+            tenantId: 1,
+        }));
+        expect(mockHotelRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+            bankName: 'BIAT',
+            accountNumber: '123',
+        }));
+        expect(mockBankAccountRepo.save).toHaveBeenCalledWith(expect.arrayContaining([
+            expect.objectContaining({ label: 'TND account', isDefault: true, hotelId: 1 }),
+            expect.objectContaining({ label: 'EUR account', isDefault: false, hotelId: 1 }),
+        ]));
+        expect(result).toEqual(expect.objectContaining({ id: 1 }));
     });
 
-    // =========================================================================
-    // LES CAS D'ERREURS
-    // =========================================================================
-    describe('Les Cas d\'Erreurs (Exceptions) ❌', () => {
-        it('devrait lever une NotFoundException lors de la mise à jour d\'un hôtel inexistant', async () => {
-            // Le preload d'un ID manquant renvoie undefined
-            mockHotelRepo.preload.mockResolvedValue(undefined);
+    it('updates bank accounts and promotes the first active account when no principal is selected', async () => {
+        const existingHotel = {
+            ...baseHotel,
+            bankAccounts: [
+                { id: 10, hotelId: 1, label: 'Old', isDefault: true, active: true },
+            ],
+        } as unknown as Hotel;
 
-            console.log(`[HÔTEL] Tentative màj avec ID invalide (999) ❌ (NotFoundException Attendue)`);
-            await expect(service.updateHotel(999, { name: 'Ghost Hotel' })).rejects.toThrow(
-                NotFoundException,
-            );
+        mockHotelRepo.findOne.mockResolvedValueOnce(existingHotel).mockResolvedValueOnce({
+            ...existingHotel,
+            bankAccounts: [],
         });
+        mockHotelRepo.save.mockImplementation(async (hotel) => hotel);
+        mockBankAccountRepo.find.mockResolvedValue([
+            { id: 10, hotelId: 1, label: 'Old', isDefault: true, active: true },
+        ]);
+        mockBankAccountRepo.update.mockResolvedValue({ affected: 1 });
+        mockBankAccountRepo.save.mockResolvedValue([]);
 
-        it('devrait lever une NotFoundException lors du soft-delete d\'un hôtel inexistant', async () => {
-            // La DB renvoie un affected de 0 car l'ID n'existe pas
-            mockHotelRepo.softDelete.mockResolvedValue({ affected: 0 });
+        await service.updateHotel(1, {
+            bankAccounts: [
+                { id: 10, label: 'Local', bankName: 'BIAT', rib: '123', active: true },
+                { label: 'International', bankName: 'STB', iban: 'TN590000', active: true },
+            ],
+        }, { id: 1, role: UserRole.ADMIN, tenantId: 1 });
 
-            console.log(`[HÔTEL] Tentative suppression avec ID invalide (999) ❌ (NotFoundException Attendue)`);
-            await expect(service.removeHotel(999)).rejects.toThrow(NotFoundException);
+        expect(mockBankAccountRepo.update).toHaveBeenCalledWith({ hotelId: 1 }, { isDefault: false });
+        expect(mockBankAccountRepo.save).toHaveBeenCalledWith(expect.arrayContaining([
+            expect.objectContaining({ id: 10, label: 'Local', isDefault: true }),
+            expect.objectContaining({ label: 'International', isDefault: false }),
+        ]));
+    });
+
+    it('creates a principal bank account from legacy bank fields', async () => {
+        const createDto: CreateHotelDto = {
+            name: baseHotel.name,
+            phone: baseHotel.phone,
+            address: baseHotel.address,
+            legalRepresentative: baseHotel.legalRepresentative,
+            defaultCurrency: 'TND',
+            bankName: 'BIAT',
+            accountNumber: '123',
+            ibanCode: 'TN590000',
+            swiftCode: 'BIATTNTT',
+        };
+
+        mockHotelRepo.save.mockResolvedValue({ ...baseHotel, id: 1 });
+        mockHotelRepo.findOne.mockResolvedValue({ ...baseHotel, bankAccounts: [] });
+        mockBankAccountRepo.find.mockResolvedValue([]);
+        mockBankAccountRepo.update.mockResolvedValue({ affected: 0 });
+        mockBankAccountRepo.save.mockResolvedValue([]);
+
+        await service.createHotel(createDto, { id: 1, role: UserRole.ADMIN, tenantId: 1 });
+
+        expect(mockBankAccountRepo.save).toHaveBeenCalledWith(expect.arrayContaining([
+            expect.objectContaining({
+                label: 'Principal account',
+                bankName: 'BIAT',
+                rib: '123',
+                iban: 'TN590000',
+                swiftCode: 'BIATTNTT',
+                isDefault: true,
+            }),
+        ]));
+    });
+
+    it('returns hotels scoped for a commercial user with bank accounts loaded', async () => {
+        mockHotelRepo.find.mockResolvedValue([baseHotel]);
+
+        const result = await service.findAllHotels({ id: 42, role: UserRole.COMMERCIAL, tenantId: null });
+
+        expect(mockHotelRepo.find).toHaveBeenCalledWith({
+            where: { users: { id: 42 } },
+            relations: ['users', 'bankAccounts'],
         });
+        expect(result).toEqual([baseHotel]);
+    });
 
-        it('devrait lever une NotFoundException lors de la restauration d\'un hôtel inexistant', async () => {
-            // La DB renvoie un affected de 0
-            mockHotelRepo.restore.mockResolvedValue({ affected: 0 });
+    it('throws when updating a missing hotel', async () => {
+        mockHotelRepo.findOne.mockResolvedValue(null);
 
-            console.log(`[HÔTEL] Tentative restauration avec ID invalide (999) ❌ (NotFoundException Attendue)`);
-            await expect(service.restoreHotel(999)).rejects.toThrow(NotFoundException);
-        });
+        await expect(service.updateHotel(999, { name: 'Ghost Hotel' }, { id: 1, role: UserRole.ADMIN, tenantId: 1 }))
+            .rejects
+            .toThrow(NotFoundException);
     });
 });

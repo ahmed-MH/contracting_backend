@@ -60,6 +60,7 @@ import { ContractCancellationController } from './cancellation/contract-cancella
 import { Affiliate } from '../affiliate/entities/affiliate.entity';
 import { RoomType } from '../hotel/entities/room-type.entity';
 import { Hotel } from '../hotel/entities/hotel.entity';
+import { HotelBankAccount } from '../hotel/entities/hotel-bank-account.entity';
 import { ExchangeRate } from '../exchange-rates/entities/exchange-rate.entity';
 import { Arrangement } from '../hotel/entities/arrangement.entity';
 import { TemplateSupplement } from '../catalog/supplement/entities/template-supplement.entity';
@@ -68,9 +69,11 @@ import { TemplateMonoparentalRule } from '../catalog/monoparental/entities/templ
 import { TemplateEarlyBooking } from '../catalog/early-booking/entities/template-early-booking.entity';
 import { TemplateSpo } from '../catalog/spo/entities/template-spo.entity';
 import { TemplateCancellationRule } from '../catalog/cancellation/entities/template-cancellation-rule.entity';
+import { ExchangeRatesModule } from '../exchange-rates/exchange-rates.module';
 
 @Module({
     imports: [
+        ExchangeRatesModule,
         TypeOrmModule.forFeature([
             Contract,
             Period,
@@ -102,6 +105,7 @@ import { TemplateCancellationRule } from '../catalog/cancellation/entities/templ
             Affiliate,
             RoomType,
             Hotel,
+            HotelBankAccount,
             ExchangeRate,
             Arrangement,
             TemplateSupplement,

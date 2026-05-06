@@ -5,6 +5,8 @@ import { Affiliate } from './entities/affiliate.entity';
 import { Contract } from '../contract/core/entities/contract.entity';
 import { CreateAffiliateDto } from './dto/create-affiliate.dto';
 import { UpdateAffiliateDto } from './dto/update-affiliate.dto';
+import { RequestUser } from '../../common/interfaces/request.interface';
+import { AuditService } from '../../common/audit/audit.service';
 
 @Injectable()
 export class AffiliateService {
@@ -12,10 +14,13 @@ export class AffiliateService {
     constructor(
         @InjectRepository(Affiliate)
         private readonly affiliateRepo: Repository<Affiliate>,
+        private readonly auditService: AuditService,
     ) { }
 
-    async create(hotelId: number, dto: CreateAffiliateDto): Promise<Affiliate> {
+    async create(hotelId: number, dto: CreateAffiliateDto, currentUser?: RequestUser): Promise<Affiliate> {
+        const actor = await this.auditService.resolveActor(currentUser);
         const affiliate = this.affiliateRepo.create({ ...dto, hotelId });
+        this.auditService.applyCreateAudit(affiliate, actor);
         return this.affiliateRepo.save(affiliate);
     }
 
@@ -41,11 +46,13 @@ export class AffiliateService {
         return affiliate.contracts ?? [];
     }
 
-    async update(hotelId: number, id: number, dto: UpdateAffiliateDto): Promise<Affiliate> {
+    async update(hotelId: number, id: number, dto: UpdateAffiliateDto, currentUser?: RequestUser): Promise<Affiliate> {
         const affiliate = await this.affiliateRepo.preload({ id, ...dto });
         if (!affiliate || affiliate.hotelId !== hotelId) {
             throw new NotFoundException(`Affiliate #${id} not found`);
         }
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(affiliate, actor);
         return this.affiliateRepo.save(affiliate);
     }
 

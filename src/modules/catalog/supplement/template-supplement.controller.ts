@@ -6,7 +6,8 @@ import { UpdateTemplateSupplementDto } from './dto/update-template-supplement.dt
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/enums';
-import { Request } from 'express';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('hotel')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -38,8 +39,9 @@ export class TemplateSupplementController {
     createTemplateSupplement(
         @Req() req: AuthenticatedRequest,
         @Body() dto: CreateTemplateSupplementDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.templateSupplementService.createTemplateSupplement(this.getHotelId(req), dto);
+        return this.templateSupplementService.createTemplateSupplement(this.getHotelId(req), dto, user);
     }
 
     @Patch('supplements/:id')
@@ -47,8 +49,9 @@ export class TemplateSupplementController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateTemplateSupplementDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.templateSupplementService.updateTemplateSupplement(this.getHotelId(req), id, dto);
+        return this.templateSupplementService.updateTemplateSupplement(this.getHotelId(req), id, dto, user);
     }
 
     @Delete('supplements/:id')

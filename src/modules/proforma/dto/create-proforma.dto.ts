@@ -5,7 +5,10 @@ import {
     IsOptional,
     IsDateString,
     IsObject,
+    IsBoolean,
+    Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateProformaDto {
     @IsNumber()
@@ -37,12 +40,30 @@ export class CreateProformaDto {
     bookingDate: string;
 
     @IsString()
+    @IsOptional()
+    voucherNumber?: string;
+
+    @IsString()
     @IsNotEmpty()
     boardTypeName: string;
 
     @IsString()
     @IsNotEmpty()
     currency: string;
+
+    @IsBoolean()
+    @IsOptional()
+    taxEnabled?: boolean;
+
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    @IsOptional()
+    taxAmount?: number;
+
+    @IsString()
+    @IsOptional()
+    taxName?: string;
 
     @IsNotEmpty()
     roomingSummary: any;

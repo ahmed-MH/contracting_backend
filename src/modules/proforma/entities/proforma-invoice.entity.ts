@@ -4,17 +4,16 @@ import {
     Column,
     ManyToOne,
     JoinColumn,
-    CreateDateColumn,
-    UpdateDateColumn,
 } from 'typeorm';
 import { ProformaInvoiceStatus } from '../../../common/constants/enums';
 import { Hotel } from '../../hotel/entities/hotel.entity';
 import { Affiliate } from '../../affiliate/entities/affiliate.entity';
 import { Contract } from '../../contract/core/entities/contract.entity';
 import { User } from '../../users/entities/user.entity';
+import { AuditableEntity } from '../../../common/audit/auditable.entity';
 
 @Entity()
-export class ProformaInvoice {
+export class ProformaInvoice extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 
@@ -56,12 +55,44 @@ export class ProformaInvoice {
     @Column({
         type: 'simple-enum',
         enum: ProformaInvoiceStatus,
-        default: ProformaInvoiceStatus.GENERATED,
+        default: ProformaInvoiceStatus.DRAFT,
     })
     status: ProformaInvoiceStatus;
 
     @Column({ type: 'varchar', length: 10 })
     currency: string;
+
+    @Column({ type: 'bit', default: false })
+    taxEnabled: boolean;
+
+    @Column({
+        type: 'decimal',
+        precision: 18,
+        scale: 2,
+        nullable: true,
+        transformer: {
+            to: (value?: number | null) => value ?? null,
+            from: (value: string | number | null): number | null => (value == null ? null : Number(value)),
+        },
+    })
+    taxAmount: number | null;
+
+    @Column({ type: 'nvarchar', length: 'MAX', nullable: true })
+    documentLogoUrl: string;
+
+    @Column({ type: 'varchar', length: 7, nullable: true })
+    documentThemeColor: string;
+
+    @Column({
+        type: 'nvarchar',
+        length: 'MAX',
+        nullable: true,
+        transformer: {
+            to: (value: any) => (value ? JSON.stringify(value) : null),
+            from: (value: string): any => (value ? JSON.parse(value) : null),
+        },
+    })
+    documentSnapshot: any;
 
     // ─── Customer Snapshot ───────────────────────────────────────────
 
@@ -81,6 +112,9 @@ export class ProformaInvoice {
 
     @Column({ type: 'date' })
     bookingDate: Date;
+
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    voucherNumber: string | null;
 
     @Column({ type: 'varchar', length: 100 })
     boardTypeName: string;
@@ -137,9 +171,15 @@ export class ProformaInvoice {
     @Column({ type: 'datetime' })
     generatedAt: Date;
 
-    @CreateDateColumn()
-    createdAt: Date;
+    @Column({ type: 'datetime2', nullable: true })
+    issuedAt: Date | null;
 
-    @UpdateDateColumn()
-    updatedAt: Date;
+    @Column({ type: 'int', nullable: true })
+    issuedByUserId: number | null;
+
+    @Column({ type: 'nvarchar', length: 255, nullable: true })
+    issuedByName: string | null;
+
+    @Column({ type: 'nvarchar', length: 255, nullable: true })
+    issuedByEmail: string | null;
 }

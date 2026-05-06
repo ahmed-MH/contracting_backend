@@ -4,8 +4,10 @@ import { CreateContractSpoDto } from './dto/create-contract-spo.dto';
 import { UpdateContractSpoDto } from './dto/update-contract-spo.dto';
 import { ImportSpoDto } from './dto/import-spo.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { UserRole } from '../../../common/constants/enums';
 import { AuthenticatedRequest } from '../../../common/interfaces/request.interface';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('contracts/:contractId/spos')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -33,8 +35,9 @@ export class ContractSpoController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Body() dto: CreateContractSpoDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractSpoService.createContractSpo(this.getHotelId(req), contractId, dto);
+        return this.contractSpoService.createContractSpo(this.getHotelId(req), contractId, dto, user);
     }
 
     @Post('import')
@@ -42,8 +45,9 @@ export class ContractSpoController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Body() dto: ImportSpoDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractSpoService.importFromTemplate(this.getHotelId(req), contractId, dto);
+        return this.contractSpoService.importFromTemplate(this.getHotelId(req), contractId, dto, user);
     }
 
     @Patch(':id')
@@ -52,8 +56,9 @@ export class ContractSpoController {
         @Param('contractId', ParseIntPipe) contractId: number,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateContractSpoDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractSpoService.updateContractSpo(this.getHotelId(req), contractId, id, dto);
+        return this.contractSpoService.updateContractSpo(this.getHotelId(req), contractId, id, dto, user);
     }
 
     @Delete(':id')
@@ -61,7 +66,8 @@ export class ContractSpoController {
         @Req() req: AuthenticatedRequest,
         @Param('contractId', ParseIntPipe) contractId: number,
         @Param('id', ParseIntPipe) id: number,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractSpoService.removeContractSpo(this.getHotelId(req), contractId, id);
+        return this.contractSpoService.removeContractSpo(this.getHotelId(req), contractId, id, user);
     }
 }

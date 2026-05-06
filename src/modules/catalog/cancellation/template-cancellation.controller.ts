@@ -4,6 +4,8 @@ import { CreateTemplateCancellationRuleDto, UpdateTemplateCancellationRuleDto } 
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/enums';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('hotels/:hotelId/catalog/cancellation-rules')
 @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
@@ -11,8 +13,8 @@ export class TemplateCancellationController {
     constructor(private readonly service: TemplateCancellationService) { }
 
     @Post()
-    create(@Param('hotelId', ParseIntPipe) hotelId: number, @Body() dto: CreateTemplateCancellationRuleDto) {
-        return this.service.createTemplateCancellationRule(hotelId, dto);
+    create(@Param('hotelId', ParseIntPipe) hotelId: number, @Body() dto: CreateTemplateCancellationRuleDto, @CurrentUser() user?: RequestUser) {
+        return this.service.createTemplateCancellationRule(hotelId, dto, user);
     }
 
     @Get()
@@ -34,8 +36,8 @@ export class TemplateCancellationController {
     }
 
     @Patch(':id')
-    update(@Param('hotelId', ParseIntPipe) hotelId: number, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateTemplateCancellationRuleDto) {
-        return this.service.update(hotelId, id, dto);
+    update(@Param('hotelId', ParseIntPipe) hotelId: number, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateTemplateCancellationRuleDto, @CurrentUser() user?: RequestUser) {
+        return this.service.update(hotelId, id, dto, user);
     }
 
     @Delete(':id')

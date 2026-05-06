@@ -7,6 +7,7 @@ import {
     OneToMany,
     ManyToOne,
     Index,
+    JoinColumn,
 } from 'typeorm';
 import { ContractStatus, PaymentConditionType, PaymentMethodType } from '../../../../common/constants/enums';
 import { Affiliate } from '../../../affiliate/entities/affiliate.entity';
@@ -20,10 +21,13 @@ import { ContractMonoparentalRule } from '../../monoparental/entities/contract-m
 import { ContractEarlyBooking } from '../../early-booking/entities/contract-early-booking.entity';
 import { ContractSpo } from '../../spo/entities/contract-spo.entity';
 import { ContractCancellationRule } from '../../cancellation/entities/contract-cancellation-rule.entity';
+import { AuditableEntity } from '../../../../common/audit/auditable.entity';
+import { HotelBankAccount } from '../../../hotel/entities/hotel-bank-account.entity';
+import { ContractPaymentPolicy } from '../payment-policy.types';
 
 @Entity()
 @Index('IDX_CONTRACT_REFERENCE', ['reference'], { unique: true, where: 'reference IS NOT NULL' })
-export class Contract {
+export class Contract extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 
@@ -56,19 +60,45 @@ export class Contract {
         enum: PaymentConditionType,
         nullable: true,
     })
-    paymentCondition: PaymentConditionType;
+    paymentCondition: PaymentConditionType | null;
 
     @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-    depositAmount: number;
+    depositAmount: number | null;
 
     @Column({ type: 'int', nullable: true })
-    creditDays: number;
+    creditDays: number | null;
 
     @Column({
         type: 'simple-array',
         nullable: true,
     })
     paymentMethods: PaymentMethodType[];
+
+    @Column({
+        type: 'nvarchar',
+        length: 'MAX',
+        nullable: true,
+        transformer: {
+            to: (value: ContractPaymentPolicy | null | undefined) => (value ? JSON.stringify(value) : null),
+            from: (value: string | ContractPaymentPolicy | null): ContractPaymentPolicy | null => {
+                if (!value) return null;
+                if (typeof value !== 'string') return value;
+                try {
+                    return JSON.parse(value) as ContractPaymentPolicy;
+                } catch {
+                    return null;
+                }
+            },
+        },
+    })
+    paymentPolicy: ContractPaymentPolicy | null;
+
+    @ManyToOne(() => HotelBankAccount, { nullable: true })
+    @JoinColumn({ name: 'selectedHotelBankAccountId' })
+    selectedHotelBankAccount: HotelBankAccount | null;
+
+    @Column({ nullable: true })
+    selectedHotelBankAccountId: number | null;
 
     @ManyToMany(() => Affiliate, (affiliate) => affiliate.contracts)
     @JoinTable({ name: 'contract_affiliates' })

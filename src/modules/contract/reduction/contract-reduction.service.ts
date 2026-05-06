@@ -9,6 +9,8 @@ import { ContractRoom } from '../core/entities/contract-room.entity';
 import { Period } from '../core/entities/period.entity';
 import { TemplateReduction } from '../../catalog/reduction/entities/template-reduction.entity';
 import { UpdateContractReductionDto } from './dto/update-contract-reduction.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class ContractReductionService {
@@ -33,6 +35,7 @@ export class ContractReductionService {
 
         @InjectRepository(TemplateReduction)
         private readonly templateRepo: Repository<TemplateReduction>,
+        private readonly auditService: AuditService,
     ) { }
 
     private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
@@ -111,6 +114,7 @@ export class ContractReductionService {
         hotelId: number,
         contractId: number,
         templateId: number,
+        currentUser?: RequestUser,
     ): Promise<ContractReduction> {
         const contract = await this.findContractOrThrow(hotelId, contractId);
 
@@ -141,6 +145,7 @@ export class ContractReductionService {
         const periods = await this.periodRepo.find({ where: { contract: { id: contractId, hotelId } } });
         const periodJunctions = periods.map(period => this.crPeriodRepo.create({ contractReduction: savedReduction, period }));
         await this.crPeriodRepo.save(periodJunctions);
+        await this.touchContractById(hotelId, contractId, currentUser);
 
         return savedReduction;
     }
@@ -151,6 +156,7 @@ export class ContractReductionService {
         contractId: number,
         id: number,
         dto: UpdateContractReductionDto,
+        currentUser?: RequestUser,
     ): Promise<ContractReduction> {
         const reduction = await this.findReductionOrThrow(hotelId, contractId, id, [
             'applicableContractRooms',
@@ -216,6 +222,8 @@ export class ContractReductionService {
             }
         }
 
+        await this.touchContractById(hotelId, contractId, currentUser);
+
         // Reload with fresh relations
         return this.reductionRepo.findOne({
             where: { id, contract: { id: contractId, hotelId } },
@@ -230,8 +238,16 @@ export class ContractReductionService {
     }
 
     // Hard delete a contract reduction (junction rows cascade automatically)
-    async remove(hotelId: number, contractId: number, id: number): Promise<void> {
+    async remove(hotelId: number, contractId: number, id: number, currentUser?: RequestUser): Promise<void> {
         const reduction = await this.findReductionOrThrow(hotelId, contractId, id);
         await this.reductionRepo.remove(reduction);
+        await this.touchContractById(hotelId, contractId, currentUser);
+    }
+
+    private async touchContractById(hotelId: number, contractId: number, currentUser?: RequestUser): Promise<void> {
+        const contract = await this.findContractOrThrow(hotelId, contractId);
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(contract, actor);
+        await this.contractRepo.save(contract);
     }
 }

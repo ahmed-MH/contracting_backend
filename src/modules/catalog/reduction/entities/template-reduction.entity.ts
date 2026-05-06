@@ -12,9 +12,10 @@ import {
     PricingModifierApplicationType,
     ReductionSystemCode,
 } from '../../../../common/constants/enums';
+import { AuditableEntity } from '../../../../common/audit/auditable.entity';
 
 @Entity()
-export class TemplateReduction {
+export class TemplateReduction extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 

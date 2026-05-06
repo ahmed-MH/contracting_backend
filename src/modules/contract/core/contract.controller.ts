@@ -9,7 +9,9 @@ import { UpdateContractDto } from './dto/update-contract.dto';
 import { BatchUpsertPricesDto } from './dto/batch-upsert-prices.dto';
 
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { UserRole } from '../../../common/constants/enums';
+import { RequestUser } from '../../../common/interfaces/request.interface';
 import { Request, Response } from 'express';
 
 @Controller('contracts')
@@ -40,8 +42,8 @@ export class ContractController {
     }
 
     @Post()
-    createContract(@Req() req: AuthenticatedRequest, @Body() dto: CreateContractDto) {
-        return this.contractService.createContract(this.getHotelId(req), dto);
+    createContract(@Req() req: AuthenticatedRequest, @Body() dto: CreateContractDto, @CurrentUser() user?: RequestUser) {
+        return this.contractService.createContract(this.getHotelId(req), dto, user);
     }
 
     @Get()
@@ -68,7 +70,7 @@ export class ContractController {
             partnerId,
             language,
             currency,
-            generatedBy: req.user?.id ?? null,
+            generatedBy: req.user ?? null,
         });
 
         res.set({
@@ -89,8 +91,9 @@ export class ContractController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateContractDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractService.updateContract(this.getHotelId(req), id, dto);
+        return this.contractService.updateContract(this.getHotelId(req), id, dto, user);
     }
 
     @Post(':id/periods')
@@ -98,8 +101,9 @@ export class ContractController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: CreatePeriodDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractService.addPeriod(this.getHotelId(req), id, dto);
+        return this.contractService.addPeriod(this.getHotelId(req), id, dto, user);
     }
 
     @Post(':id/rooms')
@@ -107,8 +111,9 @@ export class ContractController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: CreateContractRoomDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractService.addContractRoom(this.getHotelId(req), id, dto);
+        return this.contractService.addContractRoom(this.getHotelId(req), id, dto, user);
     }
 
     @Delete(':id/periods/:periodId')
@@ -116,8 +121,9 @@ export class ContractController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Param('periodId', ParseIntPipe) periodId: number,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractService.deletePeriod(this.getHotelId(req), id, periodId);
+        return this.contractService.deletePeriod(this.getHotelId(req), id, periodId, user);
     }
 
     @Delete(':id/rooms/:roomId')
@@ -125,8 +131,9 @@ export class ContractController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Param('roomId', ParseIntPipe) roomId: number,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractService.deleteContractRoom(this.getHotelId(req), id, roomId);
+        return this.contractService.deleteContractRoom(this.getHotelId(req), id, roomId, user);
     }
 
     @Get(':id/prices')
@@ -139,8 +146,9 @@ export class ContractController {
         @Req() req: AuthenticatedRequest,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: BatchUpsertPricesDto,
+        @CurrentUser() user?: RequestUser,
     ) {
-        return this.contractService.batchUpsertPrices(this.getHotelId(req), id, dto);
+        return this.contractService.batchUpsertPrices(this.getHotelId(req), id, dto, user);
     }
 
 }

@@ -1,50 +1,37 @@
-import { ContractExportPresentationService, buildExchangeRatePairs, convertAmount } from './contract-export-presentation.service';
-import { ExchangeRate } from '../../exchange-rates/entities/exchange-rate.entity';
+import { BadRequestException } from '@nestjs/common';
+import { ContractExportPresentationService } from './contract-export-presentation.service';
 import { Contract } from './entities/contract.entity';
 import { Hotel } from '../../hotel/entities/hotel.entity';
 
-describe('contract export currency conversion', () => {
-    it('converts EUR to TND by multiplying the direct pair rate', () => {
-        expect(convertAmount(72, 'EUR', 'TND', { EUR_TND: 3.1 })).toBeCloseTo(223.2);
+describe('ContractExportPresentationService', () => {
+    const currencyConversionService = {
+        resolveRate: jest.fn(),
+    };
+
+    let service: ContractExportPresentationService;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        service = new ContractExportPresentationService(currencyConversionService as any);
     });
 
-    it('converts TND to EUR by dividing the inverse pair rate', () => {
-        expect(convertAmount(223.2, 'TND', 'EUR', { EUR_TND: 3.1 })).toBeCloseTo(72);
-    });
-
-    it('keeps the amount unchanged when currencies match', () => {
-        expect(convertAmount(72, 'EUR', 'EUR', { EUR_TND: 3.1 })).toBe(72);
-    });
-
-    it('throws an explicit error when no direct or inverse pair exists', () => {
-        expect(() => convertAmount(72, 'EUR', 'USD', { EUR_TND: 3.1 })).toThrow('Missing exchange rate for EUR -> USD');
-    });
-
-    it('builds stored rates as explicit currency pairs', () => {
-        const { ratePairs } = buildExchangeRatePairs([
-            {
-                fromCurrency: 'EUR',
-                toCurrency: 'TND',
-                rate: 3.1,
-                effectiveDate: new Date('2026-01-01'),
-            } as ExchangeRate,
-        ], 'TND');
-
-        expect(ratePairs).toEqual({ EUR_TND: 3.1 });
-    });
-
-    it('uses the same direct pair rate when building the export context', async () => {
-        const exchangeRateRepo = {
-            find: jest.fn().mockResolvedValue([
+    it('uses the shared currency conversion service when building the export context', async () => {
+        currencyConversionService.resolveRate.mockResolvedValue({
+            type: 'direct',
+            sourceCurrency: 'EUR',
+            targetCurrency: 'TND',
+            rate: 3.1,
+            rateDate: '2026-01-01',
+            pairsUsed: [
                 {
+                    key: 'EUR_TND',
                     fromCurrency: 'EUR',
                     toCurrency: 'TND',
                     rate: 3.1,
-                    effectiveDate: new Date('2026-01-01'),
+                    effectiveDate: '2026-01-01',
                 },
-            ]),
-        };
-        const service = new ContractExportPresentationService(exchangeRateRepo as any);
+            ],
+        });
 
         const context = await service.buildContext(
             { currency: 'EUR', hotelId: 1 } as Contract,
@@ -53,7 +40,65 @@ describe('contract export currency conversion', () => {
             'TND',
         );
 
-        expect(context.fx.rate).toBe(3.1);
+        expect(currencyConversionService.resolveRate).toHaveBeenCalledWith(
+            'EUR',
+            'TND',
+            1,
+            undefined,
+            { pivotCurrency: 'TND' },
+        );
+        expect(context.fx).toEqual({
+            sourceCurrency: 'EUR',
+            outputCurrency: 'TND',
+            rate: 3.1,
+            rateDate: '2026-01-01',
+            source: 'EXCHANGE_RATE_TABLE',
+            valuesUsed: { EUR_TND: 3.1 },
+        });
         expect(service.convertMoney(72, context)).toBe(223.2);
+    });
+
+    it('preserves identity conversion metadata for contract export snapshots', async () => {
+        currencyConversionService.resolveRate.mockResolvedValue({
+            type: 'identity',
+            sourceCurrency: 'EUR',
+            targetCurrency: 'EUR',
+            rate: 1,
+            rateDate: '2026-01-15',
+            pairsUsed: [],
+        });
+
+        const context = await service.buildContext(
+            { currency: 'EUR', hotelId: 1 } as Contract,
+            { defaultCurrency: 'TND' } as Hotel,
+            'en',
+            'EUR',
+        );
+
+        expect(context.fx).toMatchObject({
+            rate: 1,
+            rateDate: '2026-01-15',
+            source: 'BASE_CURRENCY',
+            valuesUsed: { EUR: 1 },
+        });
+    });
+
+    it('throws the existing BadRequestException when the shared service cannot resolve a rate', async () => {
+        currencyConversionService.resolveRate.mockResolvedValue({
+            type: 'unresolved',
+            sourceCurrency: 'EUR',
+            targetCurrency: 'USD',
+            rate: null,
+            rateDate: null,
+            pairsUsed: [],
+            missingRateReason: 'No exchange rate is available for EUR to USD.',
+        });
+
+        await expect(service.buildContext(
+            { currency: 'EUR', hotelId: 1 } as Contract,
+            { defaultCurrency: 'TND' } as Hotel,
+            'en',
+            'USD',
+        )).rejects.toThrow(BadRequestException);
     });
 });

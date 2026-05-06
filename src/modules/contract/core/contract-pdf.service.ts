@@ -14,12 +14,14 @@ import { ContractPDFGenerator } from './contract-pdf.generator';
 import { Affiliate } from '../../affiliate/entities/affiliate.entity';
 import { ContractExportSnapshot } from './entities/contract-export-snapshot.entity';
 import { ContractExportPresentationService } from './contract-export-presentation.service';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 export interface ContractPdfExportOptions {
     partnerId?: string;
     language?: string;
     currency?: string;
-    generatedBy?: number | null;
+    generatedBy?: RequestUser | null;
 }
 
 /**
@@ -41,6 +43,7 @@ export class ContractPdfService {
         private readonly presentationService: ContractExportPresentationService,
 
         private readonly dataSource: DataSource,
+        private readonly auditService: AuditService,
     ) {}
 
     async generate(hotelId: number, contractId: number, options: ContractPdfExportOptions): Promise<{ buffer: Buffer; filename: string }> {
@@ -57,6 +60,7 @@ export class ContractPdfService {
                 'contractRooms',
                 'contractRooms.roomType',
                 'baseArrangement',
+                'selectedHotelBankAccount',
             ],
         });
 
@@ -143,9 +147,11 @@ export class ContractPdfService {
         contractId: number,
         partnerId: number,
         presentation: Awaited<ReturnType<ContractExportPresentationService['buildContext']>>,
-        generatedBy: number | null,
+        generatedBy: RequestUser | null,
     ): Promise<void> {
-        await this.exportSnapshotRepo.save(this.exportSnapshotRepo.create({
+        const actor = await this.auditService.resolveActor(generatedBy);
+        const generatedAt = new Date();
+        const snapshot = this.exportSnapshotRepo.create({
             contractId,
             partnerId,
             language: presentation.language,
@@ -158,8 +164,11 @@ export class ContractPdfService {
                 rateDate: presentation.fx.rateDate,
                 valuesUsed: presentation.fx.valuesUsed,
             },
-            generatedBy: generatedBy ?? null,
-        }));
+            generatedBy: actor.userId,
+            generatedAt,
+        });
+        this.auditService.applyCreateAudit(snapshot, actor, generatedAt);
+        await this.exportSnapshotRepo.save(snapshot);
     }
 
     private fetchContractLines(contractId: number): Promise<ContractLine[]> {

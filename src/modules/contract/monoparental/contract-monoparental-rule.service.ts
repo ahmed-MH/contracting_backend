@@ -9,6 +9,8 @@ import { ContractRoom } from '../core/entities/contract-room.entity';
 import { Period } from '../core/entities/period.entity';
 import { TemplateMonoparentalRule } from '../../catalog/monoparental/entities/template-monoparental-rule.entity';
 import { UpdateContractMonoparentalRuleDto } from './dto/update-contract-monoparental-rule.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class ContractMonoparentalRuleService {
@@ -33,6 +35,7 @@ export class ContractMonoparentalRuleService {
 
         @InjectRepository(TemplateMonoparentalRule)
         private readonly templateRepo: Repository<TemplateMonoparentalRule>,
+        private readonly auditService: AuditService,
     ) { }
 
     private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
@@ -111,6 +114,7 @@ export class ContractMonoparentalRuleService {
         hotelId: number,
         contractId: number,
         templateId: number,
+        currentUser?: RequestUser,
     ): Promise<ContractMonoparentalRule> {
         const contract = await this.findContractOrThrow(hotelId, contractId);
 
@@ -140,6 +144,7 @@ export class ContractMonoparentalRuleService {
         const periods = await this.periodRepo.find({ where: { contract: { id: contractId, hotelId } } });
         const periodJunctions = periods.map(period => this.rulePeriodRepo.create({ contractMonoparentalRule: savedRule, period }));
         await this.rulePeriodRepo.save(periodJunctions);
+        await this.touchContract(contract, currentUser);
 
         return savedRule;
     }
@@ -150,6 +155,7 @@ export class ContractMonoparentalRuleService {
         contractId: number,
         id: number,
         dto: UpdateContractMonoparentalRuleDto,
+        currentUser?: RequestUser,
     ): Promise<ContractMonoparentalRule> {
         const rule = await this.findRuleOrThrow(hotelId, contractId, id, [
             'applicableContractRooms',
@@ -216,6 +222,8 @@ export class ContractMonoparentalRuleService {
             }
         }
 
+        await this.touchContractById(hotelId, contractId, currentUser);
+
         // Reload with fresh relations
         return this.ruleRepo.findOne({
             where: { id, contract: { id: contractId, hotelId } },
@@ -230,8 +238,20 @@ export class ContractMonoparentalRuleService {
     }
 
     // Hard delete a contract monoparental rule
-    async remove(hotelId: number, contractId: number, id: number): Promise<void> {
+    async remove(hotelId: number, contractId: number, id: number, currentUser?: RequestUser): Promise<void> {
         const rule = await this.findRuleOrThrow(hotelId, contractId, id);
         await this.ruleRepo.remove(rule);
+        await this.touchContractById(hotelId, contractId, currentUser);
+    }
+
+    private async touchContractById(hotelId: number, contractId: number, currentUser?: RequestUser): Promise<void> {
+        const contract = await this.findContractOrThrow(hotelId, contractId);
+        await this.touchContract(contract, currentUser);
+    }
+
+    private async touchContract(contract: Contract, currentUser?: RequestUser): Promise<void> {
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(contract, actor);
+        await this.contractRepo.save(contract);
     }
 }

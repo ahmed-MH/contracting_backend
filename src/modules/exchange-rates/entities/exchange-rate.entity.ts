@@ -1,5 +1,6 @@
-import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Hotel } from '../../hotel/entities/hotel.entity';
+import { AuditableEntity } from '../../../common/audit/auditable.entity';
 
 export enum ExchangeRateSource {
     MANUAL = 'manual',
@@ -9,7 +10,7 @@ export enum ExchangeRateSource {
 
 @Entity()
 @Index('IDX_exchange_rate_pair_effective', ['hotelId', 'fromCurrency', 'toCurrency', 'effectiveDate'])
-export class ExchangeRate {
+export class ExchangeRate extends AuditableEntity {
     @PrimaryGeneratedColumn()
     id: number;
 
@@ -51,9 +52,4 @@ export class ExchangeRate {
     @Column({ type: 'date', nullable: true })
     validUntil?: Date;
 
-    @CreateDateColumn()
-    createdAt: Date;
-
-    @UpdateDateColumn()
-    updatedAt: Date;
 }

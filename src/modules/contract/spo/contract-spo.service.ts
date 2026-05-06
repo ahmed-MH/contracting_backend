@@ -13,6 +13,8 @@ import { Arrangement } from '../../hotel/entities/arrangement.entity';
 import { CreateContractSpoDto } from './dto/create-contract-spo.dto';
 import { UpdateContractSpoDto } from './dto/update-contract-spo.dto';
 import { ImportSpoDto } from './dto/import-spo.dto';
+import { RequestUser } from '../../../common/interfaces/request.interface';
+import { AuditService } from '../../../common/audit/audit.service';
 
 @Injectable()
 export class ContractSpoService {
@@ -35,6 +37,7 @@ export class ContractSpoService {
         private readonly contractRoomRepo: Repository<ContractRoom>,
         @InjectRepository(Arrangement)
         private readonly arrangementRepo: Repository<Arrangement>,
+        private readonly auditService: AuditService,
     ) { }
 
     private async findContractOrThrow(hotelId: number, contractId: number): Promise<Contract> {
@@ -110,7 +113,7 @@ export class ContractSpoService {
         });
     }
 
-    async createContractSpo(hotelId: number, contractId: number, dto: CreateContractSpoDto): Promise<ContractSpo> {
+    async createContractSpo(hotelId: number, contractId: number, dto: CreateContractSpoDto, currentUser?: RequestUser): Promise<ContractSpo> {
         const contract = await this.findContractOrThrow(hotelId, contractId);
 
         const periods = dto.periodIds?.length ? await this.findPeriodsOrThrow(hotelId, contractId, dto.periodIds) : [];
@@ -133,10 +136,12 @@ export class ContractSpoService {
             applicableArrangements: arrangements.map(arrangement => ({ arrangement })),
         });
 
-        return this.contractSpoRepo.save(spo);
+        const savedSpo = await this.contractSpoRepo.save(spo);
+        await this.touchContract(contract, currentUser);
+        return savedSpo;
     }
 
-    async importFromTemplate(hotelId: number, contractId: number, dto: ImportSpoDto): Promise<ContractSpo> {
+    async importFromTemplate(hotelId: number, contractId: number, dto: ImportSpoDto, currentUser?: RequestUser): Promise<ContractSpo> {
         const contract = await this.findContractOrThrow(hotelId, contractId);
 
         const template = await this.templateSpoRepo.findOne({ where: { id: dto.templateId, hotelId } });
@@ -164,10 +169,12 @@ export class ContractSpoService {
             applicableArrangements: [],
         });
 
-        return this.contractSpoRepo.save(spo);
+        const savedSpo = await this.contractSpoRepo.save(spo);
+        await this.touchContract(contract, currentUser);
+        return savedSpo;
     }
 
-    async updateContractSpo(hotelId: number, contractId: number, id: number, dto: UpdateContractSpoDto): Promise<ContractSpo> {
+    async updateContractSpo(hotelId: number, contractId: number, id: number, dto: UpdateContractSpoDto, currentUser?: RequestUser): Promise<ContractSpo> {
         const spo = await this.findSpoOrThrow(hotelId, contractId, id, [
             'applicablePeriods', 'applicablePeriods.period',
             'applicableContractRooms', 'applicableContractRooms.contractRoom',
@@ -287,6 +294,8 @@ export class ContractSpoService {
             }
         }
 
+        await this.touchContractById(hotelId, contractId, currentUser);
+
         return this.contractSpoRepo.findOne({
             where: { id, contract: { id: contractId, hotelId } },
             relations: [
@@ -297,8 +306,20 @@ export class ContractSpoService {
         }) as Promise<ContractSpo>;
     }
 
-    async removeContractSpo(hotelId: number, contractId: number, id: number): Promise<void> {
+    async removeContractSpo(hotelId: number, contractId: number, id: number, currentUser?: RequestUser): Promise<void> {
         const spo = await this.findSpoOrThrow(hotelId, contractId, id);
         await this.contractSpoRepo.remove(spo);
+        await this.touchContractById(hotelId, contractId, currentUser);
+    }
+
+    private async touchContractById(hotelId: number, contractId: number, currentUser?: RequestUser): Promise<void> {
+        const contract = await this.findContractOrThrow(hotelId, contractId);
+        await this.touchContract(contract, currentUser);
+    }
+
+    private async touchContract(contract: Contract, currentUser?: RequestUser): Promise<void> {
+        const actor = await this.auditService.resolveActor(currentUser);
+        this.auditService.applyUpdateAudit(contract, actor);
+        await this.contractRepo.save(contract);
     }
 }

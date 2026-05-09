@@ -761,4 +761,52 @@ describe('ProformaService', () => {
             }),
         }));
     });
+
+    it('allows issued invoices to update final preview settings', async () => {
+        const saved: any = {
+            id: 100,
+            hotelId: 3,
+            affiliateId: 10,
+            contractId: 55,
+            status: ProformaInvoiceStatus.ISSUED,
+            reference: 'PF-2026-0001',
+            currency: 'EUR',
+            taxEnabled: false,
+            taxAmount: null,
+            bookingDate: '2026-01-15',
+            calculationSnapshot: {
+                totalNet: 900,
+                roomsBreakdown: [{
+                    roomTotalNet: 900,
+                    dailyRates: [{ baseRate: 500, netRate: 500, finalDailyRate: 450, currency: 'EUR' }],
+                }],
+            },
+            totalsSnapshot: {
+                sourceCurrency: 'EUR',
+                subtotal: 900,
+                discountTotal: 0,
+                grandTotal: 900,
+            },
+            notes: 'Old notes',
+            voucherNumber: 'OLD-VCH',
+            roomingSummary: [],
+        };
+        proformaRepo.findOne.mockResolvedValueOnce(saved).mockResolvedValueOnce({
+            ...saved,
+            notes: 'Updated notes',
+            voucherNumber: 'NEW-VCH',
+        });
+
+        await service.updatePreviewSettings(3, 100, {
+            notes: 'Updated notes',
+            voucherNumber: ' NEW-VCH ',
+        }, currentUser);
+
+        expect(proformaRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+            status: ProformaInvoiceStatus.ISSUED,
+            reference: 'PF-2026-0001',
+            notes: 'Updated notes',
+            voucherNumber: 'NEW-VCH',
+        }));
+    });
 });

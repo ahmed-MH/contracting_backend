@@ -9,6 +9,7 @@ import {
     Res,
     ParseIntPipe,
     Patch,
+    Delete,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ProformaService } from './proforma.service';
@@ -57,6 +58,14 @@ export class ProformaController {
         return this.proformaService.findIssuedInvoices(parseInt(hotelId, 10), filters);
     }
 
+    @Get('invoices/archived')
+    async findArchivedIssuedInvoices(
+        @Headers('x-hotel-id') hotelId: string,
+        @Query() filters: ListIssuedProformasDto,
+    ) {
+        return this.proformaService.findArchivedIssuedInvoices(parseInt(hotelId, 10), filters);
+    }
+
     /**
      * Get a single proforma by ID.
      */
@@ -79,6 +88,22 @@ export class ProformaController {
         @CurrentUser() user?: RequestUser,
     ) {
         return this.proformaService.updatePreviewSettings(parseInt(hotelId, 10), id, dto, user);
+    }
+
+    @Delete(':id')
+    async archive(
+        @Headers('x-hotel-id') hotelId: string,
+        @Param('id', ParseIntPipe) id: number,
+    ) {
+        return this.proformaService.archive(parseInt(hotelId, 10), id);
+    }
+
+    @Patch(':id/restore')
+    async restore(
+        @Headers('x-hotel-id') hotelId: string,
+        @Param('id', ParseIntPipe) id: number,
+    ) {
+        return this.proformaService.restore(parseInt(hotelId, 10), id);
     }
 
     @Post(':id/download')

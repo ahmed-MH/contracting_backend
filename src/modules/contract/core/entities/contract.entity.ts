@@ -8,6 +8,7 @@ import {
     ManyToOne,
     Index,
     JoinColumn,
+    DeleteDateColumn,
 } from 'typeorm';
 import { ContractStatus, PaymentConditionType, PaymentMethodType } from '../../../../common/constants/enums';
 import { Affiliate } from '../../../affiliate/entities/affiliate.entity';
@@ -157,4 +158,7 @@ export class Contract extends AuditableEntity {
         onDelete: 'CASCADE',
     })
     cancellationRules: ContractCancellationRule[];
+
+    @DeleteDateColumn()
+    deletedAt: Date | null;
 }

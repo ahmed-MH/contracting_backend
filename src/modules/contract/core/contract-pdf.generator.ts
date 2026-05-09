@@ -757,11 +757,7 @@ export class ContractPDFGenerator {
             let x = this.margin;
             doc.save().rect(x, y, firstWidth, rowHeight).fillAndStroke('#FFFFFF', this.border).restore();
             doc.font('Helvetica-Bold').fontSize(7.2).fillColor(this.navy)
-                .text(room.roomType?.name ?? 'Room', x + 6, y + 8, { width: firstWidth - 12, lineGap: 1 });
-            if (this.isPublicReference(room.reference)) {
-                doc.font('Helvetica').fontSize(5.8).fillColor(this.slate)
-                    .text(this.publicReference(room.reference), x + 6, y + rowHeight - 12, { width: firstWidth - 12, ellipsis: true });
-            }
+                .text(this.roomMatrixLabel(room), x + 6, y + 8, { width: firstWidth - 12, lineGap: 1 });
             x += firstWidth;
 
             periods.forEach((period) => {
@@ -1240,8 +1236,23 @@ export class ContractPDFGenerator {
         return `Meal plan: ${arrangement.code || arrangement.name}`;
     }
 
+    private roomDisplayCode(room: any): string {
+        const code = typeof room?.roomType?.code === 'string' ? room.roomType.code.trim() : '';
+        const name = typeof room?.roomType?.name === 'string' ? room.roomType.name.trim() : '';
+        return code || name || 'Room';
+    }
+
+    private roomMatrixLabel(room: any): string {
+        const code = typeof room?.roomType?.code === 'string' ? room.roomType.code.trim() : '';
+        const name = typeof room?.roomType?.name === 'string' ? room.roomType.name.trim() : '';
+        if (name && code) return `${name} (${code})`;
+        return name || code || 'Room';
+    }
+
     private formatTargets(rooms?: any[], periods?: any[]): string {
-        const roomNames = rooms?.map((item) => item.contractRoom?.roomType?.name).filter(Boolean) ?? [];
+        const roomNames = rooms
+            ?.map((item) => item.contractRoom?.roomType ? this.roomDisplayCode(item.contractRoom) : null)
+            .filter(Boolean) ?? [];
         const periodNames = periods?.map((item) => this.normalizePeriodName(item.period?.name)).filter(Boolean) ?? [];
         const roomText = roomNames.length > 0 ? roomNames.join(', ') : 'Applies to all room types';
         const periodText = periodNames.length > 0 ? periodNames.join(', ') : 'Applies to the full stay validity';
@@ -1275,7 +1286,9 @@ export class ContractPDFGenerator {
     }
 
     private roomScope(rooms?: any[]): string {
-        const roomNames = rooms?.map((item) => item.contractRoom?.roomType?.name).filter(Boolean) ?? [];
+        const roomNames = rooms
+            ?.map((item) => item.contractRoom?.roomType ? this.roomDisplayCode(item.contractRoom) : null)
+            .filter(Boolean) ?? [];
         return roomNames.length > 0 ? roomNames.join(', ') : 'All rooms';
     }
 

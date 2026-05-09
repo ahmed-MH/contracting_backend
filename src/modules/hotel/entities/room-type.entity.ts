@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, Unique, DeleteDateColumn } from 'typeorm';
 import { Hotel } from './hotel.entity';
 import { AuditableEntity } from '../../../common/audit/auditable.entity';
+import { RoomInventoryType } from '../../../common/constants/enums';
 
 @Entity()
 @Unique('UQ_ROOM_CODE_HOTEL', ['code', 'hotelId'])
@@ -22,6 +23,13 @@ export class RoomType extends AuditableEntity {
 
     @Column()
     name: string;
+
+    @Column({
+        type: 'simple-enum',
+        enum: RoomInventoryType,
+        default: RoomInventoryType.STANDARD,
+    })
+    inventoryType: RoomInventoryType;
 
     @Column()
     minOccupancy: number;

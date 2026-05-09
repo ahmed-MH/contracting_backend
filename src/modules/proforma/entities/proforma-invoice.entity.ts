@@ -4,6 +4,7 @@ import {
     Column,
     ManyToOne,
     JoinColumn,
+    DeleteDateColumn,
 } from 'typeorm';
 import { ProformaInvoiceStatus } from '../../../common/constants/enums';
 import { Hotel } from '../../hotel/entities/hotel.entity';
@@ -182,4 +183,7 @@ export class ProformaInvoice extends AuditableEntity {
 
     @Column({ type: 'nvarchar', length: 255, nullable: true })
     issuedByEmail: string | null;
+
+    @DeleteDateColumn()
+    deletedAt: Date | null;
 }

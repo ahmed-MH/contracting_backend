@@ -148,7 +148,7 @@ export class UsersService {
     async findAssignedHotels(userId: number): Promise<Hotel[]> {
         const user = await this.userRepo.findOne({
             where: { id: userId },
-            relations: ['hotels'],
+            relations: ['hotels', 'hotels.bankAccounts'],
         });
         return user?.hotels ?? [];
     }

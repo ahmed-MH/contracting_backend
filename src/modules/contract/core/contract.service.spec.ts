@@ -24,6 +24,9 @@ describe('ContractService', () => {
         find: jest.fn(),
         findOne: jest.fn(),
         delete: jest.fn(),
+        softDelete: jest.fn(),
+        restore: jest.fn(),
+        createQueryBuilder: jest.fn(),
     });
 
     const repos = {
@@ -92,6 +95,17 @@ describe('ContractService', () => {
     };
 
     const mockHotelId = 1;
+    const contractListQuery = (data: any[], total = data.length) => ({
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        withDeleted: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([data, total]),
+    });
     const setupActivationRepositories = (lines: any[] = []) => {
         mockDataSource.getRepository.mockImplementation((entity) => {
             if (entity === ContractLine) {
@@ -243,9 +257,34 @@ describe('ContractService', () => {
     
     describe('findAll', () => {
         it('should return all contracts for a hotel', async () => {
-            repos.contract.find.mockResolvedValue([{ id: 1 }]);
-            const result = await service.findAll(mockHotelId);
-            expect(result).toEqual([{ id: 1 }]);
+            const query = contractListQuery([{ id: 1 }]);
+            repos.contract.createQueryBuilder.mockReturnValue(query);
+
+            const result = await service.findAll(mockHotelId, { page: 1, limit: 10, skip: 0 } as any);
+
+            expect(result.data).toEqual([{ id: 1 }]);
+            expect(result.meta.total).toBe(1);
+            expect(query.where).toHaveBeenCalledWith('contract.hotelId = :hotelId', { hotelId: mockHotelId });
+        });
+    });
+
+    describe('archiveContract', () => {
+        it('should soft-delete a scoped contract', async () => {
+            repos.contract.findOne.mockResolvedValue({ id: 1, hotelId: mockHotelId });
+            repos.contract.softDelete.mockResolvedValue({ affected: 1 });
+
+            await service.archiveContract(mockHotelId, 1);
+
+            expect(repos.contract.softDelete).toHaveBeenCalled();
+        });
+
+        it('should restore an archived scoped contract', async () => {
+            repos.contract.findOne.mockResolvedValue({ id: 1, hotelId: mockHotelId, deletedAt: new Date() });
+            repos.contract.restore.mockResolvedValue({ affected: 1 });
+
+            await service.restoreContract(mockHotelId, 1);
+
+            expect(repos.contract.restore).toHaveBeenCalledWith({ id: 1, hotelId: mockHotelId });
         });
     });
 

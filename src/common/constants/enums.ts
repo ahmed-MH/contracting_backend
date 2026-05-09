@@ -18,6 +18,11 @@ export enum AffiliateType {
     CORPORATE = 'CORPORATE',
 }
 
+export enum RoomInventoryType {
+    STANDARD = 'STANDARD',
+    PROMO = 'PROMO',
+}
+
 export enum PaymentConditionType {
     FULL_PREPAYMENT = 'FULL_PREPAYMENT',
     PARTIAL_DEPOSIT = 'PARTIAL_DEPOSIT',

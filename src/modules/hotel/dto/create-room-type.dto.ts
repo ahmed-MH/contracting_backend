@@ -4,10 +4,12 @@ import {
     IsNotEmpty,
     IsInt,
     IsBoolean,
+    IsEnum,
     IsOptional,
     MaxLength,
     Min,
 } from 'class-validator';
+import { RoomInventoryType } from '../../../common/constants/enums';
 
 // Title Case: capitalize first letter of each word
 function toTitleCase(value: string): string {
@@ -31,6 +33,10 @@ export class CreateRoomTypeDto {
     @IsNotEmpty()
     @Transform(({ value }: { value: string }) => toTitleCase(value.trim()))
     name: string;
+
+    @IsEnum(RoomInventoryType)
+    @IsOptional()
+    inventoryType?: RoomInventoryType;
 
     @IsInt()
     @Min(1)

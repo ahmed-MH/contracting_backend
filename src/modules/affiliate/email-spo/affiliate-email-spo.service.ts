@@ -11,7 +11,17 @@ import {
 import { Affiliate } from '../entities/affiliate.entity';
 import { AffiliateEmailSpo } from './entities/affiliate-email-spo.entity';
 import { CreateAffiliateEmailSpoDto } from './dto/create-affiliate-email-spo.dto';
+import { BulkCreateAffiliateEmailSpoDto } from './dto/bulk-create-affiliate-email-spo.dto';
 import { UpdateAffiliateEmailSpoDto } from './dto/update-affiliate-email-spo.dto';
+
+export interface BulkCreateAffiliateEmailSpoResult {
+    created: AffiliateEmailSpo[];
+    skipped: {
+        affiliateId: number;
+        affiliateName?: string;
+        reason: string;
+    }[];
+}
 
 @Injectable()
 export class AffiliateEmailSpoService {
@@ -59,6 +69,67 @@ export class AffiliateEmailSpoService {
 
         this.auditService.applyCreateAudit(entity, actor);
         return this.affiliateEmailSpoRepo.save(entity);
+    }
+
+    async createBulk(
+        hotelId: number,
+        dto: BulkCreateAffiliateEmailSpoDto,
+        currentUser?: RequestUser,
+    ): Promise<BulkCreateAffiliateEmailSpoResult> {
+        this.assertDateRange(dto.applicationFrom, dto.applicationTo);
+
+        const affiliateIds = [...new Set(dto.affiliateIds)];
+        const status = dto.status ?? AffiliateEmailSpoStatus.ACTIVE;
+        const actor = await this.auditService.resolveActor(currentUser);
+        const created: AffiliateEmailSpo[] = [];
+        const skipped: BulkCreateAffiliateEmailSpoResult['skipped'] = [];
+
+        for (const affiliateId of affiliateIds) {
+            let affiliate: Affiliate;
+
+            try {
+                affiliate = await this.loadAffiliateOrFail(hotelId, affiliateId);
+            } catch {
+                skipped.push({
+                    affiliateId,
+                    reason: `Affiliate #${affiliateId} was not found for this hotel.`,
+                });
+                continue;
+            }
+
+            try {
+                await this.assertNoActiveOverlap(hotelId, affiliateId, dto.applicationFrom, dto.applicationTo, status);
+            } catch (error) {
+                if (error instanceof BadRequestException) {
+                    skipped.push({
+                        affiliateId,
+                        affiliateName: affiliate.companyName,
+                        reason: error.message,
+                    });
+                    continue;
+                }
+
+                throw error;
+            }
+
+            const entity = this.affiliateEmailSpoRepo.create({
+                hotelId,
+                affiliateId,
+                name: dto.name?.trim(),
+                description: dto.description?.trim() || null,
+                discountPercent: dto.discountPercent,
+                applicationFrom: dto.applicationFrom as any,
+                applicationTo: dto.applicationTo as any,
+                stackMode: dto.stackMode ?? AffiliateEmailSpoStackMode.ROLLING,
+                applicationStep: dto.applicationStep ?? AffiliateEmailSpoApplicationStep.AFTER_CONTRACT_SPO,
+                status,
+            });
+
+            this.auditService.applyCreateAudit(entity, actor);
+            created.push(await this.affiliateEmailSpoRepo.save(entity));
+        }
+
+        return { created, skipped };
     }
 
     async update(

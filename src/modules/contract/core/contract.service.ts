@@ -4,7 +4,7 @@ import {
     NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, IsNull, Not } from 'typeorm';
 import { Contract } from './entities/contract.entity';
 import { ContractMarketScope, ContractStatus, PaymentConditionType, PaymentMethodType } from '../../../common/constants/enums';
 import { Period } from './entities/period.entity';
@@ -49,6 +49,8 @@ import {
     ActivationValidationIssue,
     ActivationValidationResult,
 } from './dto/activation-validation.dto';
+import { PageDto } from '../../../common/dto/page.dto';
+import { ListContractsDto } from './dto/list-contracts.dto';
 
 @Injectable()
 export class ContractService {
@@ -137,11 +139,54 @@ export class ContractService {
         return this.contractRepo.save(contract);
     }
 
-    async findAll(hotelId: number): Promise<Contract[]> {
-        return this.contractRepo.find({
-            where: { hotelId },
-            relations: ['affiliates'],
-        });
+    async findAll(hotelId: number, options: ListContractsDto): Promise<PageDto<Contract>> {
+        const query = this.contractRepo
+            .createQueryBuilder('contract')
+            .leftJoinAndSelect('contract.affiliates', 'affiliate')
+            .where('contract.hotelId = :hotelId', { hotelId });
+
+        const search = options.search?.trim();
+        if (search) {
+            query.andWhere(
+                '(contract.name LIKE :search OR contract.reference LIKE :search OR affiliate.companyName LIKE :search)',
+                { search: `%${search}%` },
+            );
+        }
+
+        const [data, total] = await query
+            .orderBy('contract.updatedAt', 'DESC')
+            .addOrderBy('contract.id', 'DESC')
+            .skip(options.skip)
+            .take(options.limit)
+            .getManyAndCount();
+
+        return new PageDto(data, total, options.page, options.limit);
+    }
+
+    async findArchived(hotelId: number, options: ListContractsDto): Promise<PageDto<Contract>> {
+        const query = this.contractRepo
+            .createQueryBuilder('contract')
+            .withDeleted()
+            .leftJoinAndSelect('contract.affiliates', 'affiliate')
+            .where('contract.hotelId = :hotelId', { hotelId })
+            .andWhere('contract.deletedAt IS NOT NULL');
+
+        const search = options.search?.trim();
+        if (search) {
+            query.andWhere(
+                '(contract.name LIKE :search OR contract.reference LIKE :search OR affiliate.companyName LIKE :search)',
+                { search: `%${search}%` },
+            );
+        }
+
+        const [data, total] = await query
+            .orderBy('contract.deletedAt', 'DESC')
+            .addOrderBy('contract.id', 'DESC')
+            .skip(options.skip)
+            .take(options.limit)
+            .getManyAndCount();
+
+        return new PageDto(data, total, options.page, options.limit);
     }
 
     async getContractDetails(hotelId: number, id: number): Promise<Contract> {
@@ -236,6 +281,33 @@ export class ContractService {
         const actor = await this.auditService.resolveActor(currentUser);
         this.auditService.applyUpdateAudit(contract, actor);
         return this.contractRepo.save(contract);
+    }
+
+    async archiveContract(hotelId: number, id: number): Promise<void> {
+        const contract = await this.contractRepo.findOne({ where: { id, hotelId } });
+        if (!contract) {
+            throw new NotFoundException(`Contract #${id} not found in hotel #${hotelId}`);
+        }
+
+        const result = await this.contractRepo.softDelete({ id, hotelId, deletedAt: IsNull() });
+        if (result.affected === 0) {
+            throw new NotFoundException(`Contract #${id} not found in hotel #${hotelId}`);
+        }
+    }
+
+    async restoreContract(hotelId: number, id: number): Promise<void> {
+        const contract = await this.contractRepo.findOne({
+            where: { id, hotelId, deletedAt: Not(IsNull()) },
+            withDeleted: true,
+        });
+        if (!contract) {
+            throw new NotFoundException(`Contract #${id} not found or not archived in hotel #${hotelId}`);
+        }
+
+        const result = await this.contractRepo.restore({ id, hotelId });
+        if (result.affected === 0) {
+            throw new NotFoundException(`Contract #${id} not found or not archived in hotel #${hotelId}`);
+        }
     }
 
     async validateActivation(hotelId: number, id: number): Promise<ActivationValidationResult> {

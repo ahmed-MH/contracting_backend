@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, DeepPartial, Repository } from 'typeorm';
+import { DataSource, DeepPartial, IsNull, Not, Repository } from 'typeorm';
 import { ProformaInvoice } from './entities/proforma-invoice.entity';
 import { ProformaSequence } from './entities/proforma-sequence.entity';
 import { ProformaPdfService } from './proforma-pdf.service';
@@ -13,6 +13,7 @@ import { Hotel } from '../hotel/entities/hotel.entity';
 import { CurrencyConversionService, CurrencyRateResolution } from '../exchange-rates/currency-conversion.service';
 import { RequestUser } from '../../common/interfaces/request.interface';
 import { AuditService } from '../../common/audit/audit.service';
+import { PageDto } from '../../common/dto/page.dto';
 
 const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
 const SOURCE_CALCULATION_SNAPSHOT_KEY = '__sourceCalculationSnapshot';
@@ -176,7 +177,7 @@ export class ProformaService {
         currentUser?: RequestUser,
     ): Promise<ProformaInvoice> {
         const proforma = await this.findOne(hotelId, id);
-        this.assertDraftEditable(proforma);
+        this.assertPreviewSettingsEditable(proforma);
         const actor = await this.auditService.resolveActor(currentUser);
         const currentCurrency = this.normalizeCurrency(proforma.currency);
         const targetCurrency = this.normalizeCurrency(dto.currency ?? currentCurrency);
@@ -234,7 +235,7 @@ export class ProformaService {
         });
     }
 
-    async findIssuedInvoices(hotelId: number, filters: ListIssuedProformasDto): Promise<ProformaInvoice[]> {
+    async findIssuedInvoices(hotelId: number, filters: ListIssuedProformasDto): Promise<PageDto<ProformaInvoice>> {
         const query = this.proformaRepo
             .createQueryBuilder('proforma')
             .where('proforma.hotelId = :hotelId', { hotelId })
@@ -262,10 +263,54 @@ export class ProformaService {
             query.andWhere('proforma.issuedAt <= :issuedTo', { issuedTo: `${filters.issuedTo}T23:59:59.999` });
         }
 
-        return query
+        const [data, total] = await query
             .orderBy('proforma.issuedAt', 'DESC')
             .addOrderBy('proforma.id', 'DESC')
-            .getMany();
+            .skip(filters.skip)
+            .take(filters.limit)
+            .getManyAndCount();
+
+        return new PageDto(data, total, filters.page, filters.limit);
+    }
+
+    async findArchivedIssuedInvoices(hotelId: number, filters: ListIssuedProformasDto): Promise<PageDto<ProformaInvoice>> {
+        const query = this.proformaRepo
+            .createQueryBuilder('proforma')
+            .withDeleted()
+            .where('proforma.hotelId = :hotelId', { hotelId })
+            .andWhere('proforma.deletedAt IS NOT NULL')
+            .andWhere('proforma.status IN (:...statuses)', {
+                statuses: [ProformaInvoiceStatus.ISSUED, ProformaInvoiceStatus.GENERATED],
+            });
+
+        const search = filters.search?.trim();
+        if (search) {
+            query.andWhere(
+                '(proforma.reference LIKE :search OR proforma.customerName LIKE :search OR proforma.customerEmail LIKE :search)',
+                { search: `%${search}%` },
+            );
+        }
+
+        if (filters.affiliateId) {
+            query.andWhere('proforma.affiliateId = :affiliateId', { affiliateId: filters.affiliateId });
+        }
+
+        if (filters.issuedFrom) {
+            query.andWhere('proforma.issuedAt >= :issuedFrom', { issuedFrom: `${filters.issuedFrom}T00:00:00.000` });
+        }
+
+        if (filters.issuedTo) {
+            query.andWhere('proforma.issuedAt <= :issuedTo', { issuedTo: `${filters.issuedTo}T23:59:59.999` });
+        }
+
+        const [data, total] = await query
+            .orderBy('proforma.issuedAt', 'DESC')
+            .addOrderBy('proforma.id', 'DESC')
+            .skip(filters.skip)
+            .take(filters.limit)
+            .getManyAndCount();
+
+        return new PageDto(data, total, filters.page, filters.limit);
     }
 
     /**
@@ -332,6 +377,33 @@ export class ProformaService {
             throw new BadRequestException('Draft proformas must be issued from the download action before PDF export.');
         }
         return this.buildDownloadResult(proforma, language, false);
+    }
+
+    async archive(hotelId: number, id: number): Promise<void> {
+        const proforma = await this.proformaRepo.findOne({ where: { id, hotelId } });
+        if (!proforma) {
+            throw new NotFoundException(`Proforma #${id} not found`);
+        }
+
+        const result = await this.proformaRepo.softDelete({ id, hotelId, deletedAt: IsNull() });
+        if (result.affected === 0) {
+            throw new NotFoundException(`Proforma #${id} not found`);
+        }
+    }
+
+    async restore(hotelId: number, id: number): Promise<void> {
+        const proforma = await this.proformaRepo.findOne({
+            where: { id, hotelId, deletedAt: Not(IsNull()) },
+            withDeleted: true,
+        });
+        if (!proforma) {
+            throw new NotFoundException(`Proforma #${id} not found or not archived`);
+        }
+
+        const result = await this.proformaRepo.restore({ id, hotelId });
+        if (result.affected === 0) {
+            throw new NotFoundException(`Proforma #${id} not found or not archived`);
+        }
     }
 
     private async ensureCurrentCommercialSnapshot(proforma: ProformaInvoice): Promise<void> {
@@ -1227,6 +1299,15 @@ export class ProformaService {
     private assertDraftEditable(proforma: ProformaInvoice): void {
         if (proforma.status !== ProformaInvoiceStatus.DRAFT) {
             throw new BadRequestException('Issued invoices are immutable and cannot be edited from the preview workspace.');
+        }
+    }
+
+    private assertPreviewSettingsEditable(proforma: ProformaInvoice): void {
+        if (
+            proforma.status !== ProformaInvoiceStatus.DRAFT
+            && !this.isIssuedLikeStatus(proforma.status)
+        ) {
+            throw new BadRequestException('This proforma cannot be edited from the preview workspace.');
         }
     }
 

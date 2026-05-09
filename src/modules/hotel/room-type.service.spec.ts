@@ -4,6 +4,7 @@ import { RoomTypeService } from './room-type.service';
 import { RoomType } from './entities/room-type.entity';
 import { Hotel } from './entities/hotel.entity';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { AuditService } from '../../common/audit/audit.service';
 
 describe('RoomTypeService', () => {
     let service: RoomTypeService;
@@ -21,6 +22,12 @@ describe('RoomTypeService', () => {
         findOne: jest.fn(),
     };
 
+    const mockAuditService = {
+        resolveActor: jest.fn(async () => ({ userId: 1, name: 'Test User', email: 'test@example.com' })),
+        applyCreateAudit: jest.fn((entity: any) => entity),
+        applyUpdateAudit: jest.fn((entity: any) => entity),
+    };
+
     const mockHotelId = 1;
     const mockId = 100;
     const mockRoom = { id: mockId, name: 'Standard Room', minOccupancy: 1, maxOccupancy: 2, minAdults: 1, maxAdults: 2, minChildren: 0, maxChildren: 1, hotel: { id: mockHotelId } } as any;
@@ -31,6 +38,7 @@ describe('RoomTypeService', () => {
                 RoomTypeService,
                 { provide: getRepositoryToken(RoomType), useValue: mockRoomTypeRepo },
                 { provide: getRepositoryToken(Hotel), useValue: mockHotelRepo },
+                { provide: AuditService, useValue: mockAuditService },
             ],
         }).compile();
 

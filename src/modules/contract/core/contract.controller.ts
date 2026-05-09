@@ -7,6 +7,7 @@ import { CreatePeriodDto } from './dto/create-period.dto';
 import { CreateContractRoomDto } from './dto/create-contract-room.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
 import { BatchUpsertPricesDto } from './dto/batch-upsert-prices.dto';
+import { ListContractsDto } from './dto/list-contracts.dto';
 
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
@@ -47,8 +48,13 @@ export class ContractController {
     }
 
     @Get()
-    findAll(@Req() req: AuthenticatedRequest) {
-        return this.contractService.findAll(this.getHotelId(req));
+    findAll(@Req() req: AuthenticatedRequest, @Query() query: ListContractsDto) {
+        return this.contractService.findAll(this.getHotelId(req), query);
+    }
+
+    @Get('archived')
+    findArchived(@Req() req: AuthenticatedRequest, @Query() query: ListContractsDto) {
+        return this.contractService.findArchived(this.getHotelId(req), query);
     }
 
     @Get(':id')
@@ -94,6 +100,16 @@ export class ContractController {
         @CurrentUser() user?: RequestUser,
     ) {
         return this.contractService.updateContract(this.getHotelId(req), id, dto, user);
+    }
+
+    @Delete(':id')
+    archiveContract(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
+        return this.contractService.archiveContract(this.getHotelId(req), id);
+    }
+
+    @Patch(':id/restore')
+    restoreContract(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
+        return this.contractService.restoreContract(this.getHotelId(req), id);
     }
 
     @Post(':id/periods')

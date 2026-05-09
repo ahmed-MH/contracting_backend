@@ -1,11 +1,8 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsDateString, IsNumber, IsOptional, Min } from 'class-validator';
+import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 
-export class ListIssuedProformasDto {
-    @IsString()
-    @IsOptional()
-    search?: string;
-
+export class ListIssuedProformasDto extends PageOptionsDto {
     @Type(() => Number)
     @IsNumber()
     @Min(1)

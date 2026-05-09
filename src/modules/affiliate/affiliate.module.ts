@@ -5,11 +5,11 @@ import { AffiliateService } from './affiliate.service';
 import { AffiliateController } from './affiliate.controller';
 import { AffiliateEmailSpo } from './email-spo/entities/affiliate-email-spo.entity';
 import { AffiliateEmailSpoService } from './email-spo/affiliate-email-spo.service';
-import { AffiliateEmailSpoController } from './email-spo/affiliate-email-spo.controller';
+import { AffiliateEmailSpoBulkController, AffiliateEmailSpoController } from './email-spo/affiliate-email-spo.controller';
 
 @Module({
     imports: [TypeOrmModule.forFeature([Affiliate, AffiliateEmailSpo])],
-    controllers: [AffiliateController, AffiliateEmailSpoController],
+    controllers: [AffiliateController, AffiliateEmailSpoBulkController, AffiliateEmailSpoController],
     providers: [AffiliateService, AffiliateEmailSpoService],
     exports: [AffiliateService, AffiliateEmailSpoService],
 })

@@ -44,7 +44,7 @@ describe('AffiliateEmailSpoService', () => {
         }).compile();
 
         service = module.get(AffiliateEmailSpoService);
-        jest.clearAllMocks();
+        jest.resetAllMocks();
 
         affiliateRepo.findOne.mockResolvedValue({
             id: 4,
@@ -128,6 +128,45 @@ describe('AffiliateEmailSpoService', () => {
         });
 
         expect(result.status).toBe(AffiliateEmailSpoStatus.INACTIVE);
+    });
+
+    it('creates the same Email SPO for multiple affiliates and skips overlapping ones', async () => {
+        affiliateRepo.findOne.mockImplementation(async ({ where }: { where: { id: number; hotelId: number } }) => ({
+            id: where.id,
+            hotelId: where.hotelId,
+            companyName: `Partner ${where.id}`,
+            affiliateType: AffiliateType.TOUR_OPERATOR,
+        }));
+        affiliateEmailSpoRepo.save.mockImplementation(async (value) => ({ id: value.affiliateId * 10, ...value }));
+        affiliateEmailSpoRepo.findOne.mockImplementation(async ({ where }: { where: { affiliateId?: number } }) => (
+            where.affiliateId === 5
+                ? {
+                    id: 99,
+                    affiliateId: 5,
+                    hotelId: 1,
+                    status: AffiliateEmailSpoStatus.ACTIVE,
+                    applicationFrom: '2026-06-01',
+                    applicationTo: '2026-06-30',
+                }
+                : null
+        ));
+
+        const result = await service.createBulk(1, {
+            affiliateIds: [4, 5, 6, 4],
+            name: 'Summer Email SPO',
+            discountPercent: 10,
+            applicationFrom: '2026-06-15',
+            applicationTo: '2026-06-20',
+        });
+
+        expect(result.created).toHaveLength(2);
+        expect(result.created.map((item) => item.affiliateId)).toEqual([4, 6]);
+        expect(result.skipped).toEqual([
+            expect.objectContaining({
+                affiliateId: 5,
+                affiliateName: 'Partner 5',
+            }),
+        ]);
     });
 
     it('rejects cross-hotel affiliate access', async () => {

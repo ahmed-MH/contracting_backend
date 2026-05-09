@@ -5,6 +5,7 @@ import { User } from './entities/user.entity';
 import { Hotel } from '../hotel/entities/hotel.entity';
 import { UserRole } from '../../common/constants/enums';
 import { ConflictException, BadRequestException } from '@nestjs/common';
+import { In } from 'typeorm';
 
 describe('UsersService', () => {
     let service: UsersService;
@@ -88,7 +89,7 @@ describe('UsersService', () => {
             mockUserRepo.findOne.mockResolvedValue(mockUser);
             const result = await service.findAdmin();
             expect(result).toEqual(mockUser);
-            expect(mockUserRepo.findOne).toHaveBeenCalledWith({ where: { role: UserRole.ADMIN } });
+            expect(mockUserRepo.findOne).toHaveBeenCalledWith({ where: { role: In([UserRole.ADMIN, UserRole.SUPERVISOR]) } });
         });
     });
 
@@ -130,9 +131,10 @@ describe('UsersService', () => {
     describe('findAll', () => {
         it('should return all users without passwords', async () => {
             mockUserRepo.find.mockResolvedValue([mockUser]);
-            const result = await service.findAll();
+            const result = await service.findAll({ id: 1, role: UserRole.SUPERVISOR, tenantId: null });
             expect(result[0]).not.toHaveProperty('password');
             expect(result[0].email).toEqual('test@test.com');
+            expect(mockUserRepo.find).toHaveBeenCalledWith({ relations: ['hotels'] });
         });
     });
 
@@ -179,6 +181,10 @@ describe('UsersService', () => {
         it('should return assigned hotels', async () => {
             mockUserRepo.findOne.mockResolvedValue({ ...mockUser, hotels: [mockHotel] });
             const result = await service.findAssignedHotels(1);
+            expect(mockUserRepo.findOne).toHaveBeenCalledWith({
+                where: { id: 1 },
+                relations: ['hotels', 'hotels.bankAccounts'],
+            });
             expect(result).toEqual([mockHotel]);
         });
 

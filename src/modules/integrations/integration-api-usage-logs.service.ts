@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { MoreThanOrEqual, Repository } from 'typeorm';
 import { IntegrationApiKeyEnvironment, IntegrationUsageLogSource } from '../../common/constants/enums';
+import { PageDto } from '../../common/dto/page.dto';
 import { RequestUser } from '../../common/interfaces/request.interface';
 import { IntegrationUsageLogQueryDto } from './dto/integration-usage-log.dto';
 import { IntegrationApiUsageLog } from './entities/integration-api-usage-log.entity';
@@ -47,7 +48,7 @@ export class IntegrationApiUsageLogsService {
         });
     }
 
-    async findAll(currentUser: RequestUser, query: IntegrationUsageLogQueryDto): Promise<IntegrationApiUsageLog[]> {
+    async findAll(currentUser: RequestUser, query: IntegrationUsageLogQueryDto): Promise<PageDto<IntegrationApiUsageLog>> {
         const builder = this.usageLogRepo
             .createQueryBuilder('log')
             .leftJoinAndSelect('log.apiUser', 'apiUser')
@@ -55,8 +56,7 @@ export class IntegrationApiUsageLogsService {
             .leftJoinAndSelect('apiKey.rotatedFrom', 'rotatedFrom')
             .leftJoinAndSelect('apiKey.rotatedTo', 'rotatedTo')
             .leftJoinAndSelect('log.hotel', 'hotel')
-            .orderBy('log.createdAt', 'DESC')
-            .take(250);
+            .orderBy('log.createdAt', 'DESC');
 
         if (currentUser.tenantId == null) {
             builder.where('log.tenantId IS NULL');
@@ -74,7 +74,7 @@ export class IntegrationApiUsageLogsService {
             builder.andWhere('log.hotelId = :hotelId', { hotelId: query.hotelId });
         }
         if (query.success !== undefined) {
-            builder.andWhere('log.success = :success', { success: query.success });
+            builder.andWhere('log.success = :success', { success: query.success === 'true' });
         }
         if (query.dateFrom) {
             builder.andWhere('log.createdAt >= :dateFrom', { dateFrom: `${query.dateFrom}T00:00:00.000Z` });
@@ -83,6 +83,11 @@ export class IntegrationApiUsageLogsService {
             builder.andWhere('log.createdAt <= :dateTo', { dateTo: `${query.dateTo}T23:59:59.999Z` });
         }
 
-        return builder.getMany();
+        const [data, total] = await builder
+            .skip(query.skip)
+            .take(query.limit)
+            .getManyAndCount();
+
+        return new PageDto(data, total, query.page, query.limit);
     }
 }

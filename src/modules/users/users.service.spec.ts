@@ -16,6 +16,7 @@ describe('UsersService', () => {
         create: jest.fn(),
         save: jest.fn(),
         softDelete: jest.fn(),
+        recover: jest.fn(),
     };
 
     const mockHotelRepo = {
@@ -134,7 +135,7 @@ describe('UsersService', () => {
             const result = await service.findAll({ id: 1, role: UserRole.SUPERVISOR, tenantId: null });
             expect(result[0]).not.toHaveProperty('password');
             expect(result[0].email).toEqual('test@test.com');
-            expect(mockUserRepo.find).toHaveBeenCalledWith({ relations: ['hotels'] });
+            expect(mockUserRepo.find).toHaveBeenCalledWith({ relations: ['hotels'], withDeleted: true });
         });
     });
 
@@ -196,10 +197,58 @@ describe('UsersService', () => {
     });
 
     describe('remove', () => {
-        it('should soft delete a user', async () => {
-            mockUserRepo.softDelete.mockResolvedValue({ affected: 1 });
-            await service.remove(1);
-            expect(mockUserRepo.softDelete).toHaveBeenCalledWith(1);
+        it('should suspend a user without hiding the row', async () => {
+            mockUserRepo.findOne.mockResolvedValue({ ...mockUser, isActive: true, invitationToken: 'token' });
+            mockUserRepo.save.mockImplementation(async (u) => u);
+
+            const result = await service.remove(1);
+
+            expect(result.isActive).toBe(false);
+            expect(result.accountStatus).toBe('SUSPENDED');
+            expect(result).not.toHaveProperty('password');
+            expect(result).not.toHaveProperty('invitationToken');
+            expect(mockUserRepo.softDelete).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('suspend', () => {
+        it('should mark a user as inactive and suspended', async () => {
+            mockUserRepo.findOne.mockResolvedValue({ ...mockUser, isActive: true });
+            mockUserRepo.save.mockImplementation(async (u) => u);
+
+            const result = await service.suspend(1);
+
+            expect(result.isActive).toBe(false);
+            expect(result.accountStatus).toBe('SUSPENDED');
+        });
+    });
+
+    describe('reactivate', () => {
+        it('should reactivate a suspended user', async () => {
+            mockUserRepo.findOne.mockResolvedValue({ ...mockUser, isActive: false, password: 'password' });
+            mockUserRepo.save.mockImplementation(async (u) => u);
+
+            const result = await service.reactivate(1);
+
+            expect(result.isActive).toBe(true);
+            expect(result.accountStatus).toBe('ACTIVE');
+        });
+
+        it('should recover a previously soft-deleted user before reactivation', async () => {
+            mockUserRepo.findOne.mockResolvedValue({ ...mockUser, isActive: false, password: 'password', deletedAt: new Date() });
+            mockUserRepo.recover.mockImplementation(async (u) => u);
+            mockUserRepo.save.mockImplementation(async (u) => u);
+
+            const result = await service.reactivate(1);
+
+            expect(mockUserRepo.recover).toHaveBeenCalled();
+            expect(result.accountStatus).toBe('ACTIVE');
+        });
+
+        it('should reject reactivation for users who never accepted an invite', async () => {
+            mockUserRepo.findOne.mockResolvedValue({ ...mockUser, isActive: false, password: null });
+
+            await expect(service.reactivate(1)).rejects.toThrow(BadRequestException);
         });
     });
 });

@@ -66,8 +66,11 @@ export const PREDEFINED_INTEGRATION_ENDPOINTS = [
                             type: 'object',
                             required: [
                                 'currency',
+                                'nightlyLineMode',
+                                'nightlyLineModeLabel',
                                 'nightlyRates',
                                 'discounts',
+                                'reductions',
                                 'supplements',
                                 'taxes',
                                 'totalBeforeDiscount',
@@ -79,17 +82,47 @@ export const PREDEFINED_INTEGRATION_ENDPOINTS = [
                             additionalProperties: false,
                             properties: {
                                 currency: { type: 'string', minLength: 3, maxLength: 3 },
+                                nightlyLineMode: { type: 'string' },
+                                nightlyLineModeLabel: { type: 'string' },
                                 nightlyRates: {
                                     type: 'array',
                                     items: {
                                         type: 'object',
-                                        required: ['date', 'roomTypeCode', 'boardCode', 'baseRate', 'discountAmount', 'supplementsAmount', 'totalBeforeTax'],
+                                        required: ['date', 'roomTypeCode', 'boardCode', 'baseRate', 'occupancy', 'discountAmount', 'supplementsAmount', 'totalBeforeTax'],
                                         additionalProperties: false,
                                         properties: {
                                             date: { type: 'string', format: 'date' },
                                             roomTypeCode: { type: 'string' },
                                             boardCode: { type: 'string' },
                                             baseRate: { type: 'number' },
+                                            occupancy: {
+                                                type: 'object',
+                                                required: ['adults', 'children', 'total', 'amount', 'pricingBasisParts'],
+                                                additionalProperties: false,
+                                                properties: {
+                                                    adults: { type: 'integer' },
+                                                    children: { type: 'integer' },
+                                                    total: { type: 'integer' },
+                                                    amount: { type: 'number' },
+                                                    pricingBasisParts: {
+                                                        type: 'array',
+                                                        items: {
+                                                            type: 'object',
+                                                            required: ['type', 'label', 'unitAmount', 'quantity', 'amount'],
+                                                            additionalProperties: false,
+                                                            properties: {
+                                                                type: { type: 'string' },
+                                                                label: { type: 'string' },
+                                                                unitAmount: { type: 'number' },
+                                                                quantity: { type: 'number' },
+                                                                amount: { type: 'number' },
+                                                                percentageOfBase: { type: ['number', 'null'] },
+                                                                reductionPercentage: { type: ['number', 'null'] },
+                                                            },
+                                                        },
+                                                    },
+                                                },
+                                            },
                                             discountAmount: { type: 'number' },
                                             supplementsAmount: { type: 'number' },
                                             totalBeforeTax: { type: 'number' },
@@ -97,6 +130,18 @@ export const PREDEFINED_INTEGRATION_ENDPOINTS = [
                                     },
                                 },
                                 discounts: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        required: ['name', 'amount'],
+                                        additionalProperties: false,
+                                        properties: {
+                                            name: { type: 'string' },
+                                            amount: { type: 'number' },
+                                        },
+                                    },
+                                },
+                                reductions: {
                                     type: 'array',
                                     items: {
                                         type: 'object',

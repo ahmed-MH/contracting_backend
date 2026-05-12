@@ -77,15 +77,40 @@ export class UsersService {
         return this.userRepo.save(user);
     }
 
-    async findAll(currentUser: RequestUser): Promise<Omit<User, 'password'>[]> {
+    private getAccountStatus(user: User): 'ACTIVE' | 'PENDING_INVITE' | 'SUSPENDED' {
+        if (user.deletedAt) {
+            return 'SUSPENDED';
+        }
+
+        if (user.isActive) {
+            return 'ACTIVE';
+        }
+
+        return user.invitationToken ? 'PENDING_INVITE' : 'SUSPENDED';
+    }
+
+    private sanitizeUser(user: User) {
+        const { password, invitationToken, resetPasswordToken, ...rest } = user;
+        void password;
+        void invitationToken;
+        void resetPasswordToken;
+
+        return {
+            ...rest,
+            accountStatus: this.getAccountStatus(user),
+        };
+    }
+
+    async findAll(currentUser: RequestUser): Promise<ReturnType<UsersService['sanitizeUser']>[]> {
         let users: User[] = [];
 
         if (currentUser.role === UserRole.SUPERVISOR) {
-            users = await this.userRepo.find({ relations: ['hotels'] });
+            users = await this.userRepo.find({ relations: ['hotels'], withDeleted: true });
         } else if (currentUser.role === UserRole.ADMIN) {
             users = await this.userRepo.find({
                 where: { tenantId: currentUser.tenantId ?? IsNull() },
                 relations: ['hotels'],
+                withDeleted: true,
             });
         } else if (currentUser.role === UserRole.COMMERCIAL || currentUser.role === UserRole.AGENT) {
             const self = await this.userRepo.findOne({
@@ -109,10 +134,7 @@ export class UsersService {
             }
         }
 
-        return users.map(({ password, ...rest }) => {
-            void password;
-            return rest;
-        });
+        return users.map((user) => this.sanitizeUser(user));
     }
 
     async update(id: number, dto: UpdateUserDto): Promise<User> {
@@ -134,12 +156,14 @@ export class UsersService {
             // ADMIN is global — always clear hotel assignments
             user.hotels = [];
         } else if (dto.hotelIds !== undefined) {
-            // COMMERCIAL — assign hotels (validate at least one)
+            // COMMERCIAL/AGENT: assign hotels (validate at least one)
             if (dto.hotelIds.length === 0) {
-                throw new BadRequestException('Un COMMERCIAL doit être assigné à au moins un hôtel.');
+                throw new BadRequestException('This role must be assigned to at least one hotel.');
             }
             const hotels = await this.hotelRepo.findByIds(dto.hotelIds);
             user.hotels = hotels;
+        } else if (dto.role && (effectiveRole === UserRole.COMMERCIAL || effectiveRole === UserRole.AGENT) && (!user.hotels || user.hotels.length === 0)) {
+            throw new BadRequestException('This role must be assigned to at least one hotel.');
         }
 
         return this.userRepo.save(user);
@@ -153,7 +177,45 @@ export class UsersService {
         return user?.hotels ?? [];
     }
 
-    async remove(id: number): Promise<void> {
-        await this.userRepo.softDelete(id);
+    async suspend(id: number): Promise<ReturnType<UsersService['sanitizeUser']>> {
+        const user = await this.userRepo.findOne({ where: { id }, relations: ['hotels'] });
+        if (!user) {
+            throw new ConflictException(`User #${id} not found`);
+        }
+
+        user.isActive = false;
+        user.invitationToken = null as unknown as string;
+        const saved = await this.userRepo.save(user);
+
+        return this.sanitizeUser(saved);
+    }
+
+    async reactivate(id: number): Promise<ReturnType<UsersService['sanitizeUser']>> {
+        const user = await this.userRepo.findOne({
+            where: { id },
+            relations: ['hotels'],
+            withDeleted: true,
+        });
+        if (!user) {
+            throw new ConflictException(`User #${id} not found`);
+        }
+
+        if (!user.password) {
+            throw new BadRequestException('This user has not accepted an invitation yet. Send a new invitation instead.');
+        }
+
+        if (user.deletedAt) {
+            await this.userRepo.recover(user);
+            user.deletedAt = undefined;
+        }
+
+        user.isActive = true;
+        const saved = await this.userRepo.save(user);
+
+        return this.sanitizeUser(saved);
+    }
+
+    async remove(id: number): Promise<ReturnType<UsersService['sanitizeUser']>> {
+        return this.suspend(id);
     }
 }

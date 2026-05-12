@@ -809,4 +809,45 @@ describe('ProformaService', () => {
             voucherNumber: 'NEW-VCH',
         }));
     });
+
+    it('clears preview notes when the update payload sends an empty note', async () => {
+        const saved: any = {
+            id: 101,
+            hotelId: 3,
+            status: ProformaInvoiceStatus.ISSUED,
+            reference: 'PF-2026-0002',
+            currency: 'EUR',
+            taxEnabled: false,
+            taxAmount: null,
+            bookingDate: '2026-01-15',
+            calculationSnapshot: {
+                totalNet: 900,
+                roomsBreakdown: [{
+                    roomTotalNet: 900,
+                    dailyRates: [{ baseRate: 500, netRate: 500, finalDailyRate: 450, currency: 'EUR' }],
+                }],
+            },
+            totalsSnapshot: {
+                sourceCurrency: 'EUR',
+                subtotal: 900,
+                discountTotal: 0,
+                grandTotal: 900,
+            },
+            notes: 'Remove me',
+            voucherNumber: null,
+            roomingSummary: [],
+        };
+        proformaRepo.findOne.mockResolvedValueOnce(saved).mockResolvedValueOnce({
+            ...saved,
+            notes: null,
+        });
+
+        await service.updatePreviewSettings(3, 101, {
+            notes: '   ',
+        }, currentUser);
+
+        expect(proformaRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+            notes: null,
+        }));
+    });
 });

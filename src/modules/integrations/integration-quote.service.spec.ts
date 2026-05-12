@@ -275,6 +275,101 @@ describe('IntegrationQuoteService', () => {
         }));
     });
 
+    it('exposes discounts, supplements, and occupancy basis without treating child pricing as a discount', async () => {
+        simulationService.calculate.mockResolvedValue({
+            totalBrut: 530,
+            totalGross: 500,
+            roomsBreakdown: [
+                {
+                    roomTotalNet: 500,
+                    dailyRates: [
+                        {
+                            date: '2026-06-01',
+                            baseRate: 100,
+                            netRate: 250,
+                            promoRate: 230,
+                            finalDailyRate: 240,
+                            perPersonRate: 80,
+                            isAvailable: true,
+                            reductionsApplied: [
+                                { name: 'Enfant 1 (7 ans)', amount: 50 },
+                                { name: 'Supplément Single (50%)', amount: 36.5 },
+                            ],
+                            supplementsApplied: [{ name: 'Meal plan upgrade', amount: 10 }],
+                            promotionApplied: { name: 'SPO (Daily)', amount: -20 },
+                        },
+                        {
+                            date: '2026-06-02',
+                            baseRate: 100,
+                            netRate: 250,
+                            promoRate: 250,
+                            finalDailyRate: 250,
+                            perPersonRate: 83.333,
+                            isAvailable: true,
+                            reductionsApplied: [{ name: 'Enfant 1 (7 ans)', amount: 50 }],
+                            supplementsApplied: [],
+                            promotionApplied: null,
+                        },
+                    ],
+                    pricingTrace: [],
+                },
+            ],
+            stayModifiers: [
+                { name: 'SPO (Flat stay)', amount: -30 },
+                { name: 'Gala dinner', amount: 40 },
+            ],
+        });
+
+        const result = await service.handleQuote(createRawBody({ childrenAges: [7] }), 'pik_key.secret', '127.0.0.1');
+
+        expect(result.statusCode).toBe(200);
+        expect(result.payload).toMatchObject({
+            pricing: {
+                discounts: [
+                    { name: 'SPO (Daily)', amount: 20 },
+                    { name: 'SPO (Flat stay)', amount: 30 },
+                ],
+                reductions: [],
+                supplements: [
+                    { name: 'Supplément Single (50%)', amount: 36.5 },
+                    { name: 'Meal plan upgrade', amount: 10 },
+                    { name: 'Gala dinner', amount: 40 },
+                ],
+                discountAmount: 50,
+                totalBeforeDiscount: 550,
+                totalBeforeTax: 500,
+                grandTotal: 500,
+            },
+        });
+        expect((result.payload.pricing as any).nightlyRates[0]).toMatchObject({
+            date: '2026-06-01',
+            occupancy: {
+                adults: 2,
+                children: 1,
+                total: 3,
+                amount: 250,
+                pricingBasisParts: [
+                    {
+                        type: 'adult',
+                        label: 'Adults',
+                        unitAmount: 100,
+                        quantity: 2,
+                        amount: 200,
+                    },
+                    {
+                        type: 'child',
+                        label: 'Enfant 1 (7 ans)',
+                        unitAmount: 50,
+                        quantity: 1,
+                        amount: 50,
+                        percentageOfBase: 50,
+                    },
+                ],
+            },
+            supplementsAmount: 46.5,
+        });
+    });
+
     it('returns IP_NOT_ALLOWED when the key allowlist rejects the request IP', async () => {
         apiKeysService.assertIpAllowed.mockImplementation(() => {
             throw new IntegrationPublicError('IP_NOT_ALLOWED', 403, 'The request IP address is not allowed for this API key.');

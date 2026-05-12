@@ -10,7 +10,7 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('hotel')
-@Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+@Roles(UserRole.COMMERCIAL)
 export class TemplateSpoController {
     constructor(private readonly templateSpoService: TemplateSpoService) { }
 
@@ -23,6 +23,7 @@ export class TemplateSpoController {
     }
 
     @Get('spos')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findAllTemplateSpos(
         @Req() req: AuthenticatedRequest,
         @Query() pageOptions: PageOptionsDto,
@@ -31,6 +32,7 @@ export class TemplateSpoController {
     }
 
     @Get('spos/archived')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findArchived(@Req() req: AuthenticatedRequest) {
         return this.templateSpoService.findArchivedTemplateSpos(this.getHotelId(req));
     }

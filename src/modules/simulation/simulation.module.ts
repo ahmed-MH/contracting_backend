@@ -12,6 +12,10 @@ import { ContractEarlyBooking } from '../contract/early-booking/entities/contrac
 import { ContractSpo } from '../contract/spo/entities/contract-spo.entity';
 import { ContractSupplement } from '../contract/supplement/entities/contract-supplement.entity';
 import { AffiliateEmailSpo } from '../affiliate/email-spo/entities/affiliate-email-spo.entity';
+import { Hotel } from '../hotel/entities/hotel.entity';
+import { Affiliate } from '../affiliate/entities/affiliate.entity';
+import { Arrangement } from '../hotel/entities/arrangement.entity';
+import { SimulationTicketPdfService } from './simulation-ticket-pdf.service';
 
 @Module({
     imports: [
@@ -24,10 +28,13 @@ import { AffiliateEmailSpo } from '../affiliate/email-spo/entities/affiliate-ema
             ContractSpo,
             ContractSupplement,
             AffiliateEmailSpo,
+            Hotel,
+            Affiliate,
+            Arrangement,
         ]),
     ],
     controllers: [SimulationController],
-    providers: [SimulationService, SimulationContractMatcherService, PricingEngineService],
-    exports: [SimulationService, SimulationContractMatcherService, PricingEngineService],
+    providers: [SimulationService, SimulationContractMatcherService, PricingEngineService, SimulationTicketPdfService],
+    exports: [SimulationService, SimulationContractMatcherService, PricingEngineService, SimulationTicketPdfService],
 })
 export class SimulationModule { }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { Contract } from '../contract/core/entities/contract.entity';
@@ -228,11 +228,12 @@ export class SimulationService {
     }
 
     private resolveAllowedStatuses(includeInactive: boolean, user?: RequestUser): ContractStatus[] {
-        if (!includeInactive) return DEFAULT_SIMULATION_CONTRACT_STATUSES;
-        if (!user || (user.role !== UserRole.ADMIN && user.role !== UserRole.COMMERCIAL)) {
-            throw new ForbiddenException('You are not allowed to include inactive contracts in simulation.');
-        }
+        if (!includeInactive || !this.canUseInactiveOverride(user)) return DEFAULT_SIMULATION_CONTRACT_STATUSES;
         return INACTIVE_SIMULATION_CONTRACT_STATUSES;
+    }
+
+    private canUseInactiveOverride(user?: RequestUser): boolean {
+        return user?.role === UserRole.ADMIN || user?.role === UserRole.COMMERCIAL;
     }
 
     private resolveRoomBoardTypeId(roomItem: RoomingItemDto, fallbackBoardTypeId: number | undefined, roomIndex: number): number {

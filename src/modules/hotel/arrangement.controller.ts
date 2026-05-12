@@ -9,7 +9,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequestUser } from '../../common/interfaces/request.interface';
 
 @Controller('hotel')
-@Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+@Roles(UserRole.COMMERCIAL)
 export class ArrangementController {
     constructor(private readonly arrangementService: ArrangementService) { }
 
@@ -27,11 +27,13 @@ export class ArrangementController {
     }
 
     @Get('arrangements')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL, UserRole.AGENT)
     findAllArrangements(@Req() req: AuthenticatedRequest) {
         return this.arrangementService.findAllArrangements(this.getHotelId(req));
     }
 
     @Get('arrangements/archived')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findArchivedArrangements(@Req() req: AuthenticatedRequest) {
         return this.arrangementService.findArchivedArrangements(this.getHotelId(req));
     }

@@ -241,7 +241,7 @@ export class ProformaPdfService {
         this.drawTotals(doc, pf, language);
 
         if (pf.notes) {
-            this.drawNotes(doc, pf.notes);
+            this.drawNotes(doc, pf.notes, this.themeColor(pf));
         }
 
         this.drawSignatureSection(doc, pf);
@@ -843,10 +843,10 @@ export class ProformaPdfService {
         doc.y = boxY + boxHeight + 10;
     }
 
-    private drawNotes(doc: PDFKit.PDFDocument, notes: string): void {
+    private drawNotes(doc: PDFKit.PDFDocument, notes: string, accent: string): void {
         this.ensureSpace(doc, 54);
         doc.moveDown(0.5);
-        this.drawSectionTitle(doc, 'COMMERCIAL NOTES');
+        this.drawSectionTitle(doc, 'COMMERCIAL NOTES', accent);
         doc.fontSize(8.5)
             .font('Helvetica')
             .fillColor('#334155')

@@ -8,7 +8,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequestUser } from '../../common/interfaces/request.interface';
 
 @Controller('affiliates')
-@Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+@Roles(UserRole.COMMERCIAL)
 export class AffiliateController {
     constructor(private readonly affiliateService: AffiliateService) { }
 
@@ -18,16 +18,19 @@ export class AffiliateController {
     }
 
     @Get()
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL, UserRole.AGENT)
     findAll(@Headers('x-hotel-id') hotelId: string) {
         return this.affiliateService.findAll(parseInt(hotelId, 10));
     }
 
     @Get('archived')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findArchived(@Headers('x-hotel-id') hotelId: string) {
         return this.affiliateService.findArchived(parseInt(hotelId, 10));
     }
 
     @Get(':id/contracts')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     getContracts(@Headers('x-hotel-id') hotelId: string, @Param('id', ParseIntPipe) id: number) {
         return this.affiliateService.getContractsForAffiliate(parseInt(hotelId, 10), id);
     }

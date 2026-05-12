@@ -10,7 +10,7 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('hotel')
-@Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+@Roles(UserRole.COMMERCIAL)
 export class TemplateSupplementController {
     constructor(private readonly templateSupplementService: TemplateSupplementService) { }
 
@@ -23,6 +23,7 @@ export class TemplateSupplementController {
     }
 
     @Get('supplements')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findAllTemplateSupplements(
         @Req() req: AuthenticatedRequest,
         @Query() pageOptions: PageOptionsDto,
@@ -31,6 +32,7 @@ export class TemplateSupplementController {
     }
 
     @Get('supplements/archived')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findArchivedTemplateSupplements(@Req() req: AuthenticatedRequest) {
         return this.templateSupplementService.findArchivedTemplateSupplements(this.getHotelId(req));
     }

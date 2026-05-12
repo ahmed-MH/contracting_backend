@@ -58,6 +58,7 @@ export class ContractController {
     }
 
     @Get(':id')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL, UserRole.AGENT)
     getContractDetails(@Req() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
         return this.contractService.getContractDetails(this.getHotelId(req), id);
     }

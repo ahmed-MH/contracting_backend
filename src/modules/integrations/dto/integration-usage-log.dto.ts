@@ -1,7 +1,8 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsDateString, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsOptional, IsString } from 'class-validator';
+import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 
-export class IntegrationUsageLogQueryDto {
+export class IntegrationUsageLogQueryDto extends PageOptionsDto {
     @IsOptional()
     @IsString()
     endpointCode?: string;
@@ -17,9 +18,8 @@ export class IntegrationUsageLogQueryDto {
     hotelId?: number;
 
     @IsOptional()
-    @Type(() => Boolean)
-    @IsBoolean()
-    success?: boolean;
+    @IsIn(['true', 'false'])
+    success?: 'true' | 'false';
 
     @IsOptional()
     @IsDateString()

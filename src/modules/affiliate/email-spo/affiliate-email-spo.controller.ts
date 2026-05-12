@@ -9,7 +9,7 @@ import { UpdateAffiliateEmailSpoDto } from './dto/update-affiliate-email-spo.dto
 import { AffiliateEmailSpoService } from './affiliate-email-spo.service';
 
 @Controller('affiliates/email-spo')
-@Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+@Roles(UserRole.COMMERCIAL)
 export class AffiliateEmailSpoBulkController {
     constructor(private readonly affiliateEmailSpoService: AffiliateEmailSpoService) {}
 
@@ -24,11 +24,12 @@ export class AffiliateEmailSpoBulkController {
 }
 
 @Controller('affiliates/:affiliateId/email-spo')
-@Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+@Roles(UserRole.COMMERCIAL)
 export class AffiliateEmailSpoController {
     constructor(private readonly affiliateEmailSpoService: AffiliateEmailSpoService) {}
 
     @Get()
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findAll(
         @Headers('x-hotel-id') hotelId: string,
         @Param('affiliateId', ParseIntPipe) affiliateId: number,

@@ -101,6 +101,22 @@ describe('SimulationContractMatcherService', () => {
         expect(result.candidates.map((candidate) => candidate.contractId)).toEqual([1, 2]);
     });
 
+    it('treats check-out as departure date when checking contract coverage', async () => {
+        contractRepo.find.mockResolvedValue([
+            makeContract({ startDate: new Date('2026-06-01'), endDate: new Date('2026-06-04') }),
+        ]);
+
+        const result = await service.match({
+            hotelId: 1,
+            affiliateId: 10,
+            checkIn: '2026-06-01',
+            checkOut: '2026-06-05',
+        });
+
+        expect(result.status).toBe('single');
+        expect(result.autoSelectedContractId).toBe(1);
+    });
+
     it('rejects selected contract validation for the wrong affiliate', async () => {
         contractRepo.find.mockResolvedValue([makeContract({ affiliates: [{ id: 11, companyName: 'Partner B' }] as any })]);
 

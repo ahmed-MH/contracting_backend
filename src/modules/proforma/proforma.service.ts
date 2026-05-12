@@ -213,7 +213,7 @@ export class ProformaService {
         proforma.totalsSnapshot = totalsSnapshot;
 
         if (this.hasOwn(dto, 'notes')) {
-            proforma.notes = (dto.notes?.trim() || undefined) as any;
+            proforma.notes = (dto.notes?.trim() || null) as any;
         }
 
         if (this.hasOwn(dto, 'voucherNumber')) {

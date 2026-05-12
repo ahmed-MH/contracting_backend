@@ -17,14 +17,14 @@ export class UsersController {
     // ─── Current User Endpoints (ALL business roles) ──────────────
 
     @Get('me')
-    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL, UserRole.AGENT)
     getMe(@Req() req: AuthenticatedRequest) {
         const user = req.user as RequestUser;
         return this.usersService.findById(user.id);
     }
 
     @Get('me/hotels')
-    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL, UserRole.AGENT)
     async getMyHotels(@Req() req: AuthenticatedRequest) {
         const user = req.user as RequestUser;
         return await this.usersService.findAssignedHotels(user.id);
@@ -40,6 +40,16 @@ export class UsersController {
     @Patch(':id')
     update(@Param('id', ParseIntPipe) id: number, @Body() updateUserDto: UpdateUserDto) {
         return this.usersService.update(id, updateUserDto);
+    }
+
+    @Patch(':id/suspend')
+    suspend(@Param('id', ParseIntPipe) id: number) {
+        return this.usersService.suspend(id);
+    }
+
+    @Patch(':id/reactivate')
+    reactivate(@Param('id', ParseIntPipe) id: number) {
+        return this.usersService.reactivate(id);
     }
 
     @Delete(':id')

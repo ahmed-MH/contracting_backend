@@ -62,8 +62,12 @@ export class AuthService implements OnModuleInit {
             throw new UnauthorizedException('Invalid credentials');
         }
 
-        if (!user.isActive) {
+        if (!user.isActive && user.invitationToken) {
             throw new UnauthorizedException('Account is not activated. Check your invitation email.');
+        }
+
+        if (!user.isActive) {
+            throw new UnauthorizedException('Account is suspended. Contact your administrator.');
         }
 
         const payload = {
@@ -90,10 +94,10 @@ export class AuthService implements OnModuleInit {
 
     // â”€â”€â”€ Invite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async invite(dto: InviteUserDto, currentUser: { tenantId: number | null }) {
-        // ADMIN = global, no hotel required. COMMERCIAL = must have at least one hotel.
-        if (dto.role === UserRole.COMMERCIAL) {
+        // ADMIN = global, no hotel required. COMMERCIAL/AGENT = must have at least one hotel.
+        if (dto.role === UserRole.COMMERCIAL || dto.role === UserRole.AGENT) {
             if (!dto.hotelIds || dto.hotelIds.length === 0) {
-                throw new BadRequestException('Un COMMERCIAL doit Ãªtre assignÃ© Ã  au moins un hÃ´tel.');
+                throw new BadRequestException('This role must be assigned to at least one hotel.');
             }
         }
 
@@ -106,7 +110,7 @@ export class AuthService implements OnModuleInit {
             tenantId: currentUser.tenantId,
         });
 
-        // Assign hotels only for COMMERCIAL
+        // Assign hotels only for hotel-scoped users
         if (dto.role !== UserRole.ADMIN && dto.hotelIds && dto.hotelIds.length > 0) {
             await this.usersService.update(user.id, { hotelIds: dto.hotelIds });
         }

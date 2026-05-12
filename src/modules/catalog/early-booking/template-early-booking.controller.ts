@@ -10,7 +10,7 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('hotel')
-@Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+@Roles(UserRole.COMMERCIAL)
 export class TemplateEarlyBookingController {
     constructor(private readonly templateEarlyBookingService: TemplateEarlyBookingService) { }
 
@@ -23,6 +23,7 @@ export class TemplateEarlyBookingController {
     }
 
     @Get('early-bookings')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findAllTemplateEarlyBookings(
         @Req() req: AuthenticatedRequest,
         @Query() pageOptions: PageOptionsDto,
@@ -31,6 +32,7 @@ export class TemplateEarlyBookingController {
     }
 
     @Get('early-bookings/archived')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findArchivedTemplateEarlyBookings(@Req() req: AuthenticatedRequest) {
         return this.templateEarlyBookingService.findArchivedTemplateEarlyBookings(this.getHotelId(req));
     }

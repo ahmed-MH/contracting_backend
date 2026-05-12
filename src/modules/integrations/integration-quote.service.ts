@@ -607,26 +607,37 @@ export class IntegrationQuoteService {
 
         const roomBreakdown = simulation.roomsBreakdown[0];
         const convertAmount = (value: number) => this.round(value * conversionRate, 3);
+        const addGroupedAmount = (group: Map<string, number>, name: string, amount: number) => {
+            group.set(name, this.round((group.get(name) ?? 0) + amount, 3));
+        };
         const groupedDiscounts = new Map<string, number>();
         const groupedSupplements = new Map<string, number>();
 
         for (const dailyRate of roomBreakdown?.dailyRates ?? []) {
             if (dailyRate.promotionApplied?.amount) {
-                groupedDiscounts.set(
+                addGroupedAmount(
+                    groupedDiscounts,
                     dailyRate.promotionApplied.name,
-                    this.round(
-                        (groupedDiscounts.get(dailyRate.promotionApplied.name) ?? 0)
-                        + convertAmount(Math.abs(dailyRate.promotionApplied.amount)),
-                        3,
-                    ),
+                    convertAmount(Math.abs(dailyRate.promotionApplied.amount)),
                 );
             }
 
+            for (const reduction of dailyRate.reductionsApplied ?? []) {
+                if (this.isSupplementAdjustment(reduction.name)) {
+                    addGroupedAmount(groupedSupplements, reduction.name, convertAmount(reduction.amount));
+                }
+            }
+
             for (const supplement of dailyRate.supplementsApplied ?? []) {
-                groupedSupplements.set(
-                    supplement.name,
-                    this.round((groupedSupplements.get(supplement.name) ?? 0) + convertAmount(supplement.amount), 3),
-                );
+                addGroupedAmount(groupedSupplements, supplement.name, convertAmount(supplement.amount));
+            }
+        }
+
+        for (const modifier of simulation.stayModifiers ?? []) {
+            if (modifier.amount < 0) {
+                addGroupedAmount(groupedDiscounts, modifier.name, convertAmount(Math.abs(modifier.amount)));
+            } else if (modifier.amount > 0) {
+                addGroupedAmount(groupedSupplements, modifier.name, convertAmount(modifier.amount));
             }
         }
 
@@ -637,6 +648,13 @@ export class IntegrationQuoteService {
             const supplementsAmount = (dailyRate.supplementsApplied ?? []).reduce(
                 (sum, supplement) => sum + convertAmount(supplement.amount),
                 0,
+            ) + (dailyRate.reductionsApplied ?? []).reduce(
+                (sum, reduction) => sum + (
+                    this.isSupplementAdjustment(reduction.name)
+                        ? convertAmount(reduction.amount)
+                        : 0
+                ),
+                0,
             );
 
             return {
@@ -644,18 +662,19 @@ export class IntegrationQuoteService {
                 roomTypeCode: stay.roomType.code,
                 boardCode: stay.board.code,
                 baseRate: convertAmount(dailyRate.baseRate),
+                occupancy: this.buildNightlyOccupancyPricing(dailyRate, stay, conversionRate),
                 discountAmount: this.round(discountAmount, 3),
                 supplementsAmount: this.round(supplementsAmount, 3),
                 totalBeforeTax: convertAmount(dailyRate.finalDailyRate),
             };
         });
 
-        const totalBeforeDiscount = convertAmount(simulation.totalBrut);
         const discountAmount = this.round(
             Array.from(groupedDiscounts.values()).reduce((sum, amount) => sum + amount, 0),
             3,
         );
         const totalBeforeTax = convertAmount(simulation.totalGross);
+        const totalBeforeDiscount = this.round(totalBeforeTax + discountAmount, 3);
         const taxAmount = 0;
         const grandTotal = this.round(totalBeforeTax + taxAmount, 3);
         const taxes: Array<Record<string, unknown>> = [];
@@ -674,8 +693,11 @@ export class IntegrationQuoteService {
             },
             pricing: {
                 currency: responseCurrency,
+                nightlyLineMode: 'commercial_pricing_basis',
+                nightlyLineModeLabel: 'Nightly amounts are before stay-level discounts. Discounts are summarized below.',
                 nightlyRates,
                 discounts: Array.from(groupedDiscounts.entries()).map(([name, amount]) => ({ name, amount })),
+                reductions: [],
                 supplements: Array.from(groupedSupplements.entries()).map(([name, amount]) => ({ name, amount })),
                 taxes,
                 totalBeforeDiscount,
@@ -721,6 +743,107 @@ export class IntegrationQuoteService {
     private round(value: number, precision: number): number {
         const factor = Math.pow(10, precision);
         return Math.round(value * factor) / factor;
+    }
+
+    private buildNightlyOccupancyPricing(
+        dailyRate: {
+            baseRate: number;
+            netRate?: number;
+            reductionsApplied?: Array<{ name: string; amount: number }>;
+        },
+        stay: ResolvedQuoteStay,
+        conversionRate: number,
+    ): Record<string, unknown> {
+        const convertAmount = (value: number) => this.round(value * conversionRate, 3);
+        const baseRate = Number(dailyRate.baseRate) || 0;
+        const adjustments = (dailyRate.reductionsApplied ?? []).filter((modifier) => !this.isSupplementAdjustment(modifier.name));
+        const extraAdultParts = adjustments
+            .map((modifier) => {
+                const match = String(modifier.name ?? '').match(/^(?:Adulte|Adult)\s+(\d+)/i);
+                if (!match) return null;
+                const amount = Number(modifier.amount) || 0;
+                if (amount <= 0) return null;
+                return {
+                    type: 'extra_adult',
+                    label: `Adult ${match[1]}`,
+                    unitAmount: convertAmount(amount),
+                    quantity: 1,
+                    amount: convertAmount(amount),
+                    percentageOfBase: baseRate > 0 ? this.round((amount / baseRate) * 100, 3) : null,
+                    reductionPercentage: baseRate > 0 ? this.round(100 - ((amount / baseRate) * 100), 3) : null,
+                };
+            })
+            .filter(Boolean) as Array<Record<string, unknown>>;
+
+        const basisParts: Array<Record<string, unknown>> = [];
+        const baseAdultQuantity = Math.max(0, stay.adults - extraAdultParts.length);
+        let rawBasisAmount = baseRate * baseAdultQuantity;
+        if (baseAdultQuantity > 0) {
+            basisParts.push({
+                type: 'adult',
+                label: 'Adults',
+                unitAmount: convertAmount(baseRate),
+                quantity: baseAdultQuantity,
+                amount: convertAmount(baseRate * baseAdultQuantity),
+            });
+        }
+        basisParts.push(...extraAdultParts);
+
+        adjustments.forEach((modifier) => {
+            const match = String(modifier.name ?? '').match(/^(?:Enfant|Child)\s+(\d+)(?:\s+\(([^)]+)\))?/i);
+            if (!match) return;
+            const amount = Number(modifier.amount) || 0;
+            if (amount <= 0) return;
+            rawBasisAmount += amount;
+            basisParts.push({
+                type: 'child',
+                label: `${match[0]}`,
+                unitAmount: convertAmount(amount),
+                quantity: 1,
+                amount: convertAmount(amount),
+                percentageOfBase: baseRate > 0 ? this.round((amount / baseRate) * 100, 3) : null,
+            });
+        });
+
+        adjustments.forEach((modifier) => {
+            const match = String(modifier.name ?? '').match(/^(?:Adulte|Adult)\s+(\d+)/i);
+            if (!match) return;
+            const amount = Number(modifier.amount) || 0;
+            if (amount > 0) rawBasisAmount += amount;
+        });
+
+        const occupancyAmount = convertAmount(
+            dailyRate.netRate !== undefined && dailyRate.netRate !== null
+                ? Number(dailyRate.netRate) || 0
+                : rawBasisAmount,
+        );
+        const knownAmount = this.round(
+            basisParts.reduce((sum, part) => sum + (typeof part.amount === 'number' ? part.amount : 0), 0),
+            3,
+        );
+        const residual = this.round(occupancyAmount - knownAmount, 3);
+        if (Math.abs(residual) > 0.005) {
+            basisParts.push({
+                type: 'adjustment',
+                label: 'Occupancy adjustment',
+                unitAmount: residual,
+                quantity: 1,
+                amount: residual,
+            });
+        }
+
+        return {
+            adults: stay.adults,
+            children: stay.childrenAges.length,
+            total: stay.adults + stay.childrenAges.length,
+            amount: occupancyAmount,
+            pricingBasisParts: basisParts,
+        };
+    }
+
+    private isSupplementAdjustment(name: string): boolean {
+        const normalized = name.toLowerCase();
+        return normalized.includes('suppl');
     }
 
     private async assertRateLimit(apiKeyId: number, rateLimitPerMinute: number): Promise<void> {

@@ -240,7 +240,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
             });
         });
 
-        it('should reject includeInactive when the user does not have permission', async () => {
+        it('should ignore includeInactive when the user does not have permission', async () => {
             repos.contract.findOne.mockResolvedValue({ ...mockContract, status: ContractStatus.EXPIRED });
 
             await expect(service.calculate(1, {
@@ -251,7 +251,7 @@ describe('SimulationService - Démo Commerciale (Moteur de Tarification)', () =>
                 checkOut: '2025-06-02',
                 roomingList: [{ ...createRoomingList(1, 2)[0], boardTypeId: 1 }],
             } as any, { id: 8, role: 'AGENT', email: 'agent@test.com', hotelIds: [1], tenantId: null } as any)).rejects.toThrow(
-                'not allowed to include inactive contracts',
+                'Enable includeInactive',
             );
         });
     });

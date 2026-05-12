@@ -113,7 +113,11 @@ export class SimulationContractMatcherService {
         const contractStart = this.toLocalDate(contract.startDate);
         const contractEnd = this.toLocalDate(contract.endDate);
         if (!contractStart || !contractEnd) return false;
-        return contractStart <= checkIn && contractEnd >= checkOut;
+
+        const lastStayNight = new Date(checkOut);
+        lastStayNight.setDate(lastStayNight.getDate() - 1);
+
+        return contractStart <= checkIn && contractEnd >= lastStayNight;
     }
 
     private toCandidate(contract: Contract, affiliateId: number): SimulationContractCandidateDto {

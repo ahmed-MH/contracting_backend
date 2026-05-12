@@ -8,7 +8,7 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { RequestUser } from '../../../common/interfaces/request.interface';
 
 @Controller('hotels/:hotelId/catalog/cancellation-rules')
-@Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+@Roles(UserRole.COMMERCIAL)
 export class TemplateCancellationController {
     constructor(private readonly service: TemplateCancellationService) { }
 
@@ -18,6 +18,7 @@ export class TemplateCancellationController {
     }
 
     @Get()
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findAll(
         @Param('hotelId', ParseIntPipe) hotelId: number,
         @Query() pageOptions: PageOptionsDto
@@ -26,11 +27,13 @@ export class TemplateCancellationController {
     }
 
     @Get('archived')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findArchived(@Param('hotelId', ParseIntPipe) hotelId: number) {
         return this.service.findArchived(hotelId);
     }
 
     @Get(':id')
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
     findOne(@Param('hotelId', ParseIntPipe) hotelId: number, @Param('id', ParseIntPipe) id: number) {
         return this.service.findOne(hotelId, id);
     }

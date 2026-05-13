@@ -18,7 +18,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "db:reset": "node --env-file=.env -r ts-node/register -r tsconfig-paths/register src/scripts/reset-db.ts"
+    "db:reset": "node --env-file=.env -r ts-node/register -r tsconfig-paths/register src/scripts/reset-db.ts",
+    "db:migrate": "node --env-file=.env -r ts-node/register -r tsconfig-paths/register src/scripts/run-migrations.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -41,6 +42,7 @@
     "pdfkit": "^0.18.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "stripe": "^22.1.1",
     "typeorm": "^0.3.28"
   },
   "devDependencies": {

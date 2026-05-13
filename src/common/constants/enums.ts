@@ -200,6 +200,25 @@ export enum IntegrationAlertSeverity {
     CRITICAL = 'CRITICAL',
 }
 
+export enum SubscriptionStatus {
+    ACTIVE = 'ACTIVE',
+    PAST_DUE = 'PAST_DUE',
+    SUSPENDED = 'SUSPENDED',
+}
+
+export enum PublicSignupStatus {
+    PENDING_PAYMENT = 'PENDING_PAYMENT',
+    PAID = 'PAID',
+    COMPLETED = 'COMPLETED',
+    EXPIRED = 'EXPIRED',
+    FAILED = 'FAILED',
+}
+
+export enum PlanBillingType {
+    RECURRING = 'RECURRING',
+    ONE_TIME = 'ONE_TIME',
+}
+
 // ─── Proforma Invoice ────────────────────────────────────────────────
 
 export enum ProformaInvoiceStatus {

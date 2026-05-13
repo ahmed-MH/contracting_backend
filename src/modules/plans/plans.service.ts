@@ -1,12 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Not, Repository } from 'typeorm';
+import { PlanBillingType, SubscriptionStatus } from '../../common/constants/enums';
+import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
+import { Plan } from './entities/plan.entity';
 
 export interface PlanRecord {
     id: number;
     name: string;
     description: string;
     monthlyPrice: number;
+    billingType: PlanBillingType;
     currency: string;
     maxHotels: number;
     maxUsers: number;
@@ -14,90 +20,161 @@ export interface PlanRecord {
     supportTier: string;
     features: string[];
     isActive: boolean;
+    stripeProductId: string | null;
+    stripePriceId: string | null;
+    createdAt: string;
     updatedAt: string;
 }
 
+export type PublicPlanRecord = Pick<
+    PlanRecord,
+    | 'id'
+    | 'name'
+    | 'description'
+    | 'monthlyPrice'
+    | 'billingType'
+    | 'currency'
+    | 'maxHotels'
+    | 'maxUsers'
+    | 'apiAccess'
+    | 'supportTier'
+    | 'features'
+> & {
+    canSubscribe: boolean;
+};
+
 @Injectable()
 export class PlansService {
-    private nextId = 4;
+    constructor(
+        @InjectRepository(Plan)
+        private readonly planRepo: Repository<Plan>,
+        @InjectRepository(Subscription)
+        private readonly subscriptionRepo: Repository<Subscription>,
+    ) { }
 
-    private readonly plans: PlanRecord[] = [
-        {
-            id: 1,
-            name: 'Free',
-            description: 'Entry plan for new organizations validating platform fit.',
-            monthlyPrice: 0,
-            currency: 'USD',
-            maxHotels: 1,
-            maxUsers: 5,
-            apiAccess: false,
-            supportTier: 'Community',
-            features: ['1 hotel', '5 users', 'Community support'],
-            isActive: true,
-            updatedAt: '2026-04-01T08:00:00.000Z',
-        },
-        {
-            id: 2,
-            name: 'Pro',
-            description: 'Growth tier with multi-property scale and API access.',
-            monthlyPrice: 499,
-            currency: 'USD',
-            maxHotels: 10,
-            maxUsers: 50,
-            apiAccess: true,
-            supportTier: 'Priority',
-            features: ['10 hotels', '50 users', 'API access', 'Priority support'],
-            isActive: true,
-            updatedAt: '2026-04-04T10:30:00.000Z',
-        },
-        {
-            id: 3,
-            name: 'Enterprise',
-            description: 'Unlimited scale with dedicated enablement and governance.',
-            monthlyPrice: 0,
-            currency: 'USD',
-            maxHotels: 9999,
-            maxUsers: 9999,
-            apiAccess: true,
-            supportTier: 'Dedicated',
-            features: ['Unlimited hotels', 'Unlimited users', 'Dedicated API throughput', 'Success manager'],
-            isActive: true,
-            updatedAt: '2026-04-05T12:15:00.000Z',
-        },
-    ];
-
-    findAll(): PlanRecord[] {
-        return this.plans;
+    async findAll(): Promise<PlanRecord[]> {
+        const plans = await this.planRepo.find({ order: { monthlyPrice: 'ASC', id: 'ASC' } });
+        return plans.map((plan) => this.toRecord(plan));
     }
 
-    create(dto: CreatePlanDto): PlanRecord {
-        const plan: PlanRecord = {
-            id: this.nextId++,
+    async findActivePublicPlans(): Promise<PublicPlanRecord[]> {
+        const plans = await this.planRepo.find({
+            where: { isActive: true },
+            order: { monthlyPrice: 'ASC', id: 'ASC' },
+        });
+        return plans.map((plan) => this.toPublicRecord(plan));
+    }
+
+    async create(dto: CreatePlanDto): Promise<PlanRecord> {
+        await this.ensureUniqueName(dto.name);
+
+        const plan = this.planRepo.create({
             ...dto,
+            billingType: dto.billingType ?? PlanBillingType.RECURRING,
             isActive: dto.isActive ?? true,
-            updatedAt: new Date().toISOString(),
-        };
-        this.plans.push(plan);
-        return plan;
+        });
+
+        return this.toRecord(await this.planRepo.save(plan));
     }
 
-    update(id: number, dto: UpdatePlanDto): PlanRecord {
-        const plan = this.plans.find((item) => item.id === id);
+    async update(id: number, dto: UpdatePlanDto): Promise<PlanRecord> {
+        const plan = await this.planRepo.findOne({ where: { id } });
         if (!plan) {
             throw new NotFoundException(`Plan #${id} not found`);
         }
 
-        Object.assign(plan, dto, { updatedAt: new Date().toISOString() });
-        return plan;
+        if (dto.name !== undefined) {
+            await this.ensureUniqueName(dto.name, id);
+            plan.name = dto.name;
+        }
+        if (dto.description !== undefined) plan.description = dto.description;
+        if (dto.monthlyPrice !== undefined) plan.monthlyPrice = dto.monthlyPrice;
+        if (dto.billingType !== undefined) plan.billingType = dto.billingType;
+        if (dto.currency !== undefined) plan.currency = dto.currency;
+        if (dto.maxHotels !== undefined) plan.maxHotels = dto.maxHotels;
+        if (dto.maxUsers !== undefined) plan.maxUsers = dto.maxUsers;
+        if (dto.apiAccess !== undefined) plan.apiAccess = dto.apiAccess;
+        if (dto.supportTier !== undefined) plan.supportTier = dto.supportTier;
+        if (dto.features !== undefined) plan.features = dto.features;
+        if (dto.isActive !== undefined) plan.isActive = dto.isActive;
+        if (dto.stripeProductId !== undefined) plan.stripeProductId = dto.stripeProductId || null;
+        if (dto.stripePriceId !== undefined) plan.stripePriceId = dto.stripePriceId || null;
+
+        return this.toRecord(await this.planRepo.save(plan));
     }
 
-    remove(id: number): { success: true } {
-        const index = this.plans.findIndex((item) => item.id === id);
-        if (index === -1) {
+    async remove(id: number): Promise<{ success: true; deactivated?: true }> {
+        const plan = await this.planRepo.findOne({ where: { id } });
+        if (!plan) {
             throw new NotFoundException(`Plan #${id} not found`);
         }
 
-        this.plans.splice(index, 1);
+        const activeSubscriptionCount = await this.subscriptionRepo.count({
+            where: [
+                { planId: id, status: SubscriptionStatus.ACTIVE },
+                { planId: id, status: SubscriptionStatus.PAST_DUE },
+            ],
+        });
+
+        if (activeSubscriptionCount > 0) {
+            plan.isActive = false;
+            await this.planRepo.save(plan);
+            return { success: true, deactivated: true };
+        }
+
+        await this.planRepo.delete(id);
         return { success: true };
+    }
+
+    async findByName(name: string): Promise<Plan | null> {
+        return this.planRepo.findOne({ where: { name } });
+    }
+
+    private async ensureUniqueName(name: string, currentPlanId?: number): Promise<void> {
+        const existing = await this.planRepo.findOne({
+            where: currentPlanId ? { name, id: Not(currentPlanId) } : { name },
+        });
+
+        if (existing) {
+            throw new ConflictException(`Plan "${name}" already exists`);
+        }
+    }
+
+    private toRecord(plan: Plan): PlanRecord {
+        return {
+            id: plan.id,
+            name: plan.name,
+            description: plan.description,
+            monthlyPrice: Number(plan.monthlyPrice),
+            billingType: plan.billingType ?? PlanBillingType.RECURRING,
+            currency: plan.currency,
+            maxHotels: plan.maxHotels,
+            maxUsers: plan.maxUsers,
+            apiAccess: plan.apiAccess,
+            supportTier: plan.supportTier,
+            features: plan.features ?? [],
+            isActive: plan.isActive,
+            stripeProductId: plan.stripeProductId ?? null,
+            stripePriceId: plan.stripePriceId ?? null,
+            createdAt: plan.createdAt.toISOString(),
+            updatedAt: plan.updatedAt.toISOString(),
+        };
+    }
+
+    private toPublicRecord(plan: Plan): PublicPlanRecord {
+        return {
+            id: plan.id,
+            name: plan.name,
+            description: plan.description,
+            monthlyPrice: Number(plan.monthlyPrice),
+            billingType: plan.billingType ?? PlanBillingType.RECURRING,
+            currency: plan.currency,
+            maxHotels: plan.maxHotels,
+            maxUsers: plan.maxUsers,
+            apiAccess: plan.apiAccess,
+            supportTier: plan.supportTier,
+            features: plan.features ?? [],
+            canSubscribe: Boolean(plan.stripePriceId),
+        };
     }
 }

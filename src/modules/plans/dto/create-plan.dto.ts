@@ -1,4 +1,5 @@
-import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { PlanBillingType } from '../../../common/constants/enums';
 
 export class CreatePlanDto {
     @IsString()
@@ -12,6 +13,10 @@ export class CreatePlanDto {
     @IsNumber()
     @Min(0)
     monthlyPrice: number;
+
+    @IsOptional()
+    @IsEnum(PlanBillingType)
+    billingType?: PlanBillingType;
 
     @IsString()
     @IsNotEmpty()
@@ -39,4 +44,12 @@ export class CreatePlanDto {
     @IsOptional()
     @IsBoolean()
     isActive?: boolean;
+
+    @IsOptional()
+    @IsString()
+    stripeProductId?: string;
+
+    @IsOptional()
+    @IsString()
+    stripePriceId?: string;
 }

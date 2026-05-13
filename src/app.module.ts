@@ -22,6 +22,7 @@ import { MailModule } from './modules/mail/mail.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { CustomIdSubscriber } from './common/subscribers/custom-id.subscriber';
 import { buildNestMssqlConfig } from './config/database.config';
@@ -55,6 +56,7 @@ import { buildNestMssqlConfig } from './config/database.config';
     TenantsModule,
     PlansModule,
     SubscriptionsModule,
+    BillingModule,
     IntegrationsModule,
 
     // Auth & Mail

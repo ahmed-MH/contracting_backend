@@ -50,7 +50,7 @@ export class AuthController {
     // ─── Protected routes ────────────────────────────────────────
 
     @Get('me')
-    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL)
+    @Roles(UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.COMMERCIAL)
     getProfile(@Request() req: { user: { id: number; email: string; role: string } }) {
         return req.user;
     }

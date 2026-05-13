@@ -23,6 +23,8 @@ import { ContractCancellationService } from '../modules/contract/cancellation/co
 import { ExchangeRateService } from '../modules/exchange-rates/exchange-rate.service';
 import { UsersService } from '../modules/users/users.service';
 import { TenantsService } from '../modules/tenants/tenants.service';
+import { PlansService } from '../modules/plans/plans.service';
+import { SubscriptionsService } from '../modules/subscriptions/subscriptions.service';
 import { Arrangement } from '../modules/hotel/entities/arrangement.entity';
 import { Affiliate } from '../modules/affiliate/entities/affiliate.entity';
 import { RoomType } from '../modules/hotel/entities/room-type.entity';
@@ -41,6 +43,7 @@ import {
     PaymentMethodType,
     CancellationPenaltyType,
     UserRole,
+    SubscriptionStatus,
     ReductionSystemCode,
     SupplementSystemCode
 } from '../common/constants/enums';
@@ -93,6 +96,8 @@ async function resetDb() {
         const exchangeRateService = app.get(ExchangeRateService);
         const usersService = app.get(UsersService);
         const tenantsService = app.get(TenantsService);
+        const plansService = app.get(PlansService);
+        const subscriptionsService = app.get(SubscriptionsService);
 
         // 0. Tenant
         const tenant = await tenantsService.create({
@@ -108,6 +113,56 @@ async function resetDb() {
             tenantId: tenant.id,
         };
         console.log(`Tenant "${tenant.name}" created successfully! (ID: ${tenant.id})`);
+
+        console.log('\nSaaS plans:');
+        const freePlan = await plansService.create({
+            name: 'Free',
+            description: 'Entry plan for new organizations validating platform fit.',
+            monthlyPrice: 0,
+            currency: 'USD',
+            maxHotels: 1,
+            maxUsers: 5,
+            apiAccess: false,
+            supportTier: 'Community',
+            features: ['1 hotel', '5 users', 'Community support'],
+            isActive: true,
+        });
+        const proPlan = await plansService.create({
+            name: 'Pro',
+            description: 'Growth tier with multi-property scale and API access.',
+            monthlyPrice: 499,
+            currency: 'USD',
+            maxHotels: 10,
+            maxUsers: 50,
+            apiAccess: true,
+            supportTier: 'Priority',
+            features: ['10 hotels', '50 users', 'API access', 'Priority support'],
+            isActive: true,
+        });
+        const enterprisePlan = await plansService.create({
+            name: 'Enterprise',
+            description: 'Unlimited scale with dedicated enablement and governance.',
+            monthlyPrice: 0,
+            currency: 'USD',
+            maxHotels: 9999,
+            maxUsers: 9999,
+            apiAccess: true,
+            supportTier: 'Dedicated',
+            features: ['Unlimited hotels', 'Unlimited users', 'Dedicated API throughput', 'Success manager'],
+            isActive: true,
+        });
+        void freePlan;
+        void proPlan;
+        console.log(`  Plans seeded: Free, Pro, ${enterprisePlan.name}`);
+        if (process.env.STRIPE_PRICE_FREE) {
+            await plansService.update(freePlan.id, { stripePriceId: process.env.STRIPE_PRICE_FREE });
+        }
+        if (process.env.STRIPE_PRICE_PRO) {
+            await plansService.update(proPlan.id, { stripePriceId: process.env.STRIPE_PRICE_PRO });
+        }
+        if (process.env.STRIPE_PRICE_ENTERPRISE) {
+            await plansService.update(enterprisePlan.id, { stripePriceId: process.env.STRIPE_PRICE_ENTERPRISE });
+        }
 
         // 1. Hotel
         const hotel = await hotelService.createHotel({
@@ -374,6 +429,18 @@ async function resetDb() {
         });
         await usersService.update(commUser.id, { hotelIds: [hotel.id] });
         console.log(`  👤  Utilisateur COMMERCIAL: commercial@marriott.com / commercial123`);
+
+        await subscriptionsService.createOrUpdateForTenant({
+            tenantId: tenant.id,
+            planId: enterprisePlan.id,
+            status: SubscriptionStatus.ACTIVE,
+            currentPeriodStart: '2026-05-01',
+            currentPeriodEnd: '2026-06-01',
+            monthlyPrice: 18400,
+            currency: 'USD',
+            note: 'Demo enterprise subscription for supervisor dashboards.',
+        });
+        console.log('  SaaS subscription: Marriott Tunisia / Enterprise / ACTIVE');
 
         console.log('\n✅ Seed Marriott Sousse Summer 2025 terminé avec succès !');
         await app.close();

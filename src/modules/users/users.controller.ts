@@ -17,7 +17,7 @@ export class UsersController {
     // ─── Current User Endpoints (ALL business roles) ──────────────
 
     @Get('me')
-    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL, UserRole.AGENT)
+    @Roles(UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.COMMERCIAL, UserRole.AGENT)
     getMe(@Req() req: AuthenticatedRequest) {
         const user = req.user as RequestUser;
         return this.usersService.findById(user.id);

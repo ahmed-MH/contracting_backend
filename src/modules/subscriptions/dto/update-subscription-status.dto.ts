@@ -1,9 +1,10 @@
 import { IsIn, IsISO8601, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { SubscriptionStatus } from '../../../common/constants/enums';
 
 export class UpdateSubscriptionStatusDto {
     @IsString()
-    @IsIn(['ACTIVE', 'PAST_DUE', 'SUSPENDED'])
-    status: 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED';
+    @IsIn(Object.values(SubscriptionStatus))
+    status: SubscriptionStatus;
 
     @IsOptional()
     @IsString()

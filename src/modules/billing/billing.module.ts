@@ -10,10 +10,12 @@ import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
 import { PublicSignup } from './entities/public-signup.entity';
 import { PublicOnboardingController } from './public-onboarding.controller';
+import { PublicSignupsController } from './public-signups.controller';
 
 @Module({
     imports: [ConfigModule, MailModule, TypeOrmModule.forFeature([Tenant, Plan, Subscription, PublicSignup, User])],
-    controllers: [BillingController, PublicOnboardingController],
+    controllers: [BillingController, PublicOnboardingController, PublicSignupsController],
     providers: [BillingService],
+    exports: [BillingService],
 })
 export class BillingModule { }

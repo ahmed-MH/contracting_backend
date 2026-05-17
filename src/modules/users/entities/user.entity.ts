@@ -36,6 +36,12 @@ export class User {
     @Column({ nullable: true })
     invitationToken: string;
 
+    @Column({ type: 'datetime2', nullable: true })
+    invitationCanceledAt: Date | null;
+
+    @Column({ type: 'int', nullable: true })
+    invitationCanceledByUserId: number | null;
+
     @Exclude()
     @Column({ nullable: true })
     resetPasswordToken: string;

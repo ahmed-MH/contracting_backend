@@ -2,6 +2,8 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from 
 import { Roles } from '../../common/decorators/roles.decorator';
 import { SkipHotelCheck } from '../../common/decorators/skip-hotel-check.decorator';
 import { UserRole } from '../../common/constants/enums';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../common/interfaces/request.interface';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { PlansService } from './plans.service';
@@ -18,17 +20,17 @@ export class PlansController {
     }
 
     @Post()
-    create(@Body() dto: CreatePlanDto) {
-        return this.plansService.create(dto);
+    create(@Body() dto: CreatePlanDto, @CurrentUser() user: RequestUser) {
+        return this.plansService.create(dto, user);
     }
 
     @Patch(':id')
-    update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdatePlanDto) {
-        return this.plansService.update(id, dto);
+    update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdatePlanDto, @CurrentUser() user: RequestUser) {
+        return this.plansService.update(id, dto, user);
     }
 
     @Delete(':id')
-    remove(@Param('id', ParseIntPipe) id: number) {
-        return this.plansService.remove(id);
+    remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: RequestUser) {
+        return this.plansService.remove(id, user);
     }
 }

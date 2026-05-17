@@ -1,7 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
+import { AuditService } from '../../common/audit/audit.service';
+import { AuditLogCategory, AuditLogSeverity } from '../../common/audit/audit.types';
 import { PlanBillingType, SubscriptionStatus } from '../../common/constants/enums';
+import { RequestUser } from '../../common/interfaces/request.interface';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
@@ -50,6 +53,7 @@ export class PlansService {
         private readonly planRepo: Repository<Plan>,
         @InjectRepository(Subscription)
         private readonly subscriptionRepo: Repository<Subscription>,
+        private readonly auditService: AuditService,
     ) { }
 
     async findAll(): Promise<PlanRecord[]> {
@@ -65,7 +69,7 @@ export class PlansService {
         return plans.map((plan) => this.toPublicRecord(plan));
     }
 
-    async create(dto: CreatePlanDto): Promise<PlanRecord> {
+    async create(dto: CreatePlanDto, currentUser?: RequestUser): Promise<PlanRecord> {
         await this.ensureUniqueName(dto.name);
 
         const plan = this.planRepo.create({
@@ -74,10 +78,26 @@ export class PlansService {
             isActive: dto.isActive ?? true,
         });
 
-        return this.toRecord(await this.planRepo.save(plan));
+        const saved = await this.planRepo.save(plan);
+        await this.auditService.log({
+            eventType: 'PLAN_CREATED',
+            category: AuditLogCategory.PLAN,
+            message: `Plan ${saved.name} was created`,
+            actor: await this.auditService.resolveActor(currentUser),
+            targetType: 'plan',
+            targetId: saved.id,
+            metadata: {
+                billingType: saved.billingType,
+                monthlyPrice: Number(saved.monthlyPrice),
+                currency: saved.currency,
+                isActive: saved.isActive,
+                hasStripePriceId: Boolean(saved.stripePriceId),
+            },
+        });
+        return this.toRecord(saved);
     }
 
-    async update(id: number, dto: UpdatePlanDto): Promise<PlanRecord> {
+    async update(id: number, dto: UpdatePlanDto, currentUser?: RequestUser): Promise<PlanRecord> {
         const plan = await this.planRepo.findOne({ where: { id } });
         if (!plan) {
             throw new NotFoundException(`Plan #${id} not found`);
@@ -100,10 +120,26 @@ export class PlansService {
         if (dto.stripeProductId !== undefined) plan.stripeProductId = dto.stripeProductId || null;
         if (dto.stripePriceId !== undefined) plan.stripePriceId = dto.stripePriceId || null;
 
-        return this.toRecord(await this.planRepo.save(plan));
+        const saved = await this.planRepo.save(plan);
+        await this.auditService.log({
+            eventType: 'PLAN_UPDATED',
+            category: AuditLogCategory.PLAN,
+            message: `Plan ${saved.name} was updated`,
+            actor: await this.auditService.resolveActor(currentUser),
+            targetType: 'plan',
+            targetId: saved.id,
+            metadata: {
+                changedFields: Object.keys(dto),
+                billingType: saved.billingType,
+                monthlyPrice: Number(saved.monthlyPrice),
+                isActive: saved.isActive,
+                hasStripePriceId: Boolean(saved.stripePriceId),
+            },
+        });
+        return this.toRecord(saved);
     }
 
-    async remove(id: number): Promise<{ success: true; deactivated?: true }> {
+    async remove(id: number, currentUser?: RequestUser): Promise<{ success: true; deactivated?: true }> {
         const plan = await this.planRepo.findOne({ where: { id } });
         if (!plan) {
             throw new NotFoundException(`Plan #${id} not found`);
@@ -119,10 +155,29 @@ export class PlansService {
         if (activeSubscriptionCount > 0) {
             plan.isActive = false;
             await this.planRepo.save(plan);
+            await this.auditService.log({
+                eventType: 'PLAN_DEACTIVATED',
+                category: AuditLogCategory.PLAN,
+                severity: AuditLogSeverity.WARNING,
+                message: `Plan ${plan.name} was deactivated because active subscriptions exist`,
+                actor: await this.auditService.resolveActor(currentUser),
+                targetType: 'plan',
+                targetId: plan.id,
+                metadata: { activeSubscriptionCount },
+            });
             return { success: true, deactivated: true };
         }
 
         await this.planRepo.delete(id);
+        await this.auditService.log({
+            eventType: 'PLAN_DELETED',
+            category: AuditLogCategory.PLAN,
+            severity: AuditLogSeverity.WARNING,
+            message: `Plan ${plan.name} was deleted`,
+            actor: await this.auditService.resolveActor(currentUser),
+            targetType: 'plan',
+            targetId: plan.id,
+        });
         return { success: true };
     }
 

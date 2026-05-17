@@ -1,6 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { AuditService } from '../../common/audit/audit.service';
 import { PlanBillingType, SubscriptionStatus } from '../../common/constants/enums';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { Plan } from './entities/plan.entity';
@@ -19,6 +20,10 @@ describe('PlansService', () => {
 
     const mockSubscriptionRepo = {
         count: jest.fn(),
+    };
+    const mockAuditService = {
+        log: jest.fn(),
+        resolveActor: jest.fn().mockResolvedValue({ userId: null, email: null, role: 'SYSTEM', name: 'System' }),
     };
 
     const mockPlan = {
@@ -46,6 +51,7 @@ describe('PlansService', () => {
                 PlansService,
                 { provide: getRepositoryToken(Plan), useValue: mockPlanRepo },
                 { provide: getRepositoryToken(Subscription), useValue: mockSubscriptionRepo },
+                { provide: AuditService, useValue: mockAuditService },
             ],
         }).compile();
 
@@ -139,7 +145,42 @@ describe('PlansService', () => {
         });
         expect(mockPlanRepo.save).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
         expect(mockPlanRepo.delete).not.toHaveBeenCalled();
+        expect(mockAuditService.log).toHaveBeenCalledWith(expect.objectContaining({
+            eventType: 'PLAN_DEACTIVATED',
+            targetId: 2,
+        }));
         expect(result).toEqual({ success: true, deactivated: true });
+    });
+
+    it('logs plan creation and updates', async () => {
+        mockPlanRepo.findOne.mockResolvedValue(null);
+        mockPlanRepo.create.mockImplementation((value) => ({ ...mockPlan, ...value }));
+        mockPlanRepo.save.mockImplementation(async (plan) => ({ ...mockPlan, ...plan }));
+
+        await service.create({
+            name: 'Launch',
+            description: 'Launch tier',
+            monthlyPrice: 99,
+            billingType: PlanBillingType.RECURRING,
+            currency: 'USD',
+            maxHotels: 1,
+            maxUsers: 5,
+            apiAccess: false,
+            supportTier: 'Standard',
+            features: [],
+        });
+
+        expect(mockAuditService.log).toHaveBeenCalledWith(expect.objectContaining({
+            eventType: 'PLAN_CREATED',
+        }));
+
+        mockPlanRepo.findOne.mockResolvedValue({ ...mockPlan });
+        await service.update(2, { monthlyPrice: 599 });
+
+        expect(mockAuditService.log).toHaveBeenCalledWith(expect.objectContaining({
+            eventType: 'PLAN_UPDATED',
+            targetId: 2,
+        }));
     });
 
     it('throws when deleting a missing plan', async () => {

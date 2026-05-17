@@ -6,6 +6,8 @@ import { MailService } from '../mail/mail.service';
 import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { UserRole } from '../../common/constants/enums';
+import { TenantUsageService } from '../subscriptions/tenant-usage.service';
+import { AuditService } from '../../common/audit/audit.service';
 
 jest.mock('bcrypt');
 jest.mock('crypto', () => ({
@@ -35,6 +37,16 @@ describe('AuthService', () => {
         sendPasswordReset: jest.fn(),
     };
 
+    const mockTenantUsageService = {
+        assertCanInviteUser: jest.fn(),
+    };
+
+    const mockAuditService = {
+        log: jest.fn(),
+        logAuth: jest.fn(),
+        resolveActor: jest.fn().mockResolvedValue({ userId: null, email: null, role: 'SYSTEM', name: 'System' }),
+    };
+
     const mockUser = {
         id: 1,
         email: 'test@test.com',
@@ -53,11 +65,14 @@ describe('AuthService', () => {
                 { provide: UsersService, useValue: mockUsersService },
                 { provide: JwtService, useValue: mockJwtService },
                 { provide: MailService, useValue: mockMailService },
+                { provide: TenantUsageService, useValue: mockTenantUsageService },
+                { provide: AuditService, useValue: mockAuditService },
             ],
         }).compile();
 
         service = module.get<AuthService>(AuthService);
         jest.clearAllMocks();
+        mockTenantUsageService.assertCanInviteUser.mockResolvedValue(undefined);
     });
 
     describe('onModuleInit', () => {
@@ -81,6 +96,10 @@ describe('AuthService', () => {
         it('should throw UnauthorizedException if user not found', async () => {
             mockUsersService.findByEmail.mockResolvedValue(null);
             await expect(service.login({ email: 'test@test.com', password: 'password' })).rejects.toThrow(UnauthorizedException);
+            expect(mockAuditService.logAuth).toHaveBeenCalledWith(expect.objectContaining({
+                eventType: 'LOGIN_FAILED',
+                actorEmail: 'test@test.com',
+            }));
         });
 
         it('should throw UnauthorizedException if password invalid', async () => {
@@ -103,6 +122,10 @@ describe('AuthService', () => {
             const result = await service.login({ email: 'test@test.com', password: 'password' });
             expect(result.accessToken).toEqual('jwt-token');
             expect(result.user.email).toEqual(mockUser.email);
+            expect(mockAuditService.logAuth).toHaveBeenCalledWith(expect.objectContaining({
+                eventType: 'LOGIN_SUCCESS',
+                actorEmail: mockUser.email,
+            }));
         });
 
         it('should handle users without hotels during login', async () => {
@@ -131,9 +154,14 @@ describe('AuthService', () => {
 
             const result = await service.invite(dto, { tenantId: 1 });
             
+            expect(mockTenantUsageService.assertCanInviteUser).toHaveBeenCalledWith(1);
             expect(mockUsersService.createInvitedUser).toHaveBeenCalled();
             expect(mockUsersService.update).toHaveBeenCalledWith(2, { hotelIds: [1] });
             expect(mockMailService.sendUserInvitation).toHaveBeenCalled();
+            expect(mockAuditService.log).toHaveBeenCalledWith(expect.objectContaining({
+                eventType: 'USER_INVITED',
+                targetId: 2,
+            }));
             expect(result.message).toContain('Invitation sent');
         });
 
@@ -143,16 +171,64 @@ describe('AuthService', () => {
 
             await service.invite({ email: 'admin@test.com', role: UserRole.ADMIN }, { tenantId: 1 });
             
+            expect(mockTenantUsageService.assertCanInviteUser).toHaveBeenCalledWith(1);
             expect(mockUsersService.createInvitedUser).toHaveBeenCalled();
             expect(mockUsersService.update).not.toHaveBeenCalled(); // Admins don't get specific hotels assigned
             expect(mockMailService.sendUserInvitation).toHaveBeenCalled();
+        });
+
+        it('should invite AGENT and assign hotels', async () => {
+            const invitedUser = { id: 4, email: 'agent@test.com' };
+            mockUsersService.createInvitedUser.mockResolvedValue(invitedUser);
+
+            await service.invite({ email: 'agent@test.com', role: UserRole.AGENT, hotelIds: [1] }, { tenantId: 1 });
+
+            expect(mockTenantUsageService.assertCanInviteUser).toHaveBeenCalledWith(1);
+            expect(mockUsersService.createInvitedUser).toHaveBeenCalledWith(expect.objectContaining({
+                email: 'agent@test.com',
+                role: UserRole.AGENT,
+                tenantId: 1,
+            }));
+            expect(mockUsersService.update).toHaveBeenCalledWith(4, { hotelIds: [1] });
+            expect(mockMailService.sendUserInvitation).toHaveBeenCalled();
+        });
+
+        it('should reject SUPERVISOR invites through the tenant invite flow', async () => {
+            await expect(service.invite({ email: 'boss@test.com', role: UserRole.SUPERVISOR } as any, { tenantId: 1 }))
+                .rejects
+                .toThrow('This role cannot be invited to a tenant.');
+
+            expect(mockTenantUsageService.assertCanInviteUser).not.toHaveBeenCalled();
+            expect(mockUsersService.createInvitedUser).not.toHaveBeenCalled();
+            expect(mockMailService.sendUserInvitation).not.toHaveBeenCalled();
+        });
+
+        it('should reject invites when the plan user limit is reached', async () => {
+            mockTenantUsageService.assertCanInviteUser.mockRejectedValue(new BadRequestException('User limit reached for current plan.'));
+
+            await expect(service.invite({ email: 'admin@test.com', role: UserRole.ADMIN }, { tenantId: 1 }))
+                .rejects
+                .toThrow('User limit reached for current plan.');
+
+            expect(mockUsersService.createInvitedUser).not.toHaveBeenCalled();
+            expect(mockMailService.sendUserInvitation).not.toHaveBeenCalled();
         });
     });
 
     describe('acceptInvite', () => {
         it('should throw BadRequestException if token invalid', async () => {
             mockUsersService.findByInvitationToken.mockResolvedValue(null);
-            await expect(service.acceptInvite({ token: 'invalid', firstName: 'A', lastName: 'B', password: 'P' })).rejects.toThrow(BadRequestException);
+            await expect(service.acceptInvite({ token: 'invalid', firstName: 'A', lastName: 'B', password: 'P' }))
+                .rejects
+                .toThrow('This invitation is no longer valid. Please contact your organization administrator.');
+        });
+
+        it('should return a generic invalid invite error for canceled invite records', async () => {
+            mockUsersService.findByInvitationToken.mockResolvedValue({ ...mockUser, isActive: false, invitationToken: null, invitationCanceledAt: new Date() });
+
+            await expect(service.acceptInvite({ token: 'removed', firstName: 'A', lastName: 'B', password: 'P' }))
+                .rejects
+                .toThrow('This invitation is no longer valid. Please contact your organization administrator.');
         });
 
         it('should activate user and return token', async () => {
@@ -169,6 +245,10 @@ describe('AuthService', () => {
                 lastName: 'B',
                 password: 'new-hashed-password',
                 invitationToken: null
+            }));
+            expect(mockAuditService.log).toHaveBeenCalledWith(expect.objectContaining({
+                eventType: 'INVITE_ACCEPTED',
+                actorEmail: invitedUser.email,
             }));
             expect(result.accessToken).toEqual('new-jwt');
         });

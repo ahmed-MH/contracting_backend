@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { PublicSignupStatus } from '../../../common/constants/enums';
 import { Plan } from '../../plans/entities/plan.entity';
+import { Subscription } from '../../subscriptions/entities/subscription.entity';
 import { Tenant } from '../../tenants/entities/tenant.entity';
 import { User } from '../../users/entities/user.entity';
 
@@ -61,6 +62,23 @@ export class PublicSignup {
 
     @Column({ type: 'int', nullable: true })
     adminUserId: number | null;
+
+    @ManyToOne(() => Subscription, { nullable: true, onDelete: 'NO ACTION' })
+    @JoinColumn({ name: 'subscriptionId' })
+    subscription: Subscription | null;
+
+    @Column({ type: 'int', nullable: true })
+    subscriptionId: number | null;
+
+    @Column({ type: 'datetime2', nullable: true })
+    completedAt: Date | null;
+
+    @Index()
+    @Column({ type: 'nvarchar', length: 255, nullable: true })
+    lastStripeEventId: string | null;
+
+    @Column({ type: 'nvarchar', length: 1000, nullable: true })
+    failureReason: string | null;
 
     @CreateDateColumn()
     createdAt: Date;

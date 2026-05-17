@@ -1,6 +1,7 @@
 import {
     BadRequestException,
     ConflictException,
+    ForbiddenException,
     Injectable,
     Logger,
     NotFoundException,
@@ -10,8 +11,11 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import Stripe from 'stripe';
-import { In, Repository } from 'typeorm';
+import { DataSource, EntityManager, FindOptionsWhere, In, Repository } from 'typeorm';
+import { AuditService } from '../../common/audit/audit.service';
+import { AuditLogCategory, AuditLogSeverity } from '../../common/audit/audit.types';
 import { PlanBillingType, PublicSignupStatus, SubscriptionStatus, UserRole } from '../../common/constants/enums';
+import { RequestUser } from '../../common/interfaces/request.interface';
 import { MailService } from '../mail/mail.service';
 import { Plan } from '../plans/entities/plan.entity';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
@@ -19,12 +23,33 @@ import { Tenant } from '../tenants/entities/tenant.entity';
 import { User } from '../users/entities/user.entity';
 import { CreateCheckoutSessionDto } from './dto/create-checkout-session.dto';
 import { CreatePublicOnboardingCheckoutSessionDto } from './dto/create-public-onboarding-checkout-session.dto';
+import { ListPublicSignupsQueryDto } from './dto/list-public-signups-query.dto';
 import { PublicSignup } from './entities/public-signup.entity';
 import { mapStripeSubscriptionStatus } from './utils/stripe-status.mapper';
 
 export interface CheckoutSessionResponse {
     checkoutUrl: string;
     sessionId: string;
+}
+
+export interface PublicSignupRecord {
+    id: number;
+    companyName: string;
+    adminFullName: string;
+    adminEmail: string;
+    phone: string | null;
+    planId: number;
+    planName: string;
+    billingType: PlanBillingType;
+    status: PublicSignupStatus;
+    failureReason: string | null;
+    stripeCheckoutSessionId: string | null;
+    tenantId: number | null;
+    adminUserId: number | null;
+    subscriptionId: number | null;
+    completedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
 }
 
 type StripeReference = string | { id?: string } | null | undefined;
@@ -34,6 +59,9 @@ interface StripeSessionPayload {
     url?: string | null;
     customer?: StripeReference;
     subscription?: StripeReference;
+    mode?: string | null;
+    payment_status?: string | null;
+    status?: string | null;
     metadata?: Record<string, string> | null;
 }
 
@@ -53,6 +81,11 @@ interface StripeInvoicePayload {
 
 type CheckoutMetadata = Record<string, string>;
 
+interface StripeSubscriptionSyncResult {
+    subscription: StripeSubscriptionPayload | null;
+    failureReason?: string;
+}
+
 @Injectable()
 export class BillingService {
     private readonly logger = new Logger(BillingService.name);
@@ -61,6 +94,7 @@ export class BillingService {
     constructor(
         private readonly configService: ConfigService,
         private readonly mailService: MailService,
+        private readonly dataSource: DataSource,
         @InjectRepository(Tenant)
         private readonly tenantRepo: Repository<Tenant>,
         @InjectRepository(Plan)
@@ -71,9 +105,10 @@ export class BillingService {
         private readonly publicSignupRepo: Repository<PublicSignup>,
         @InjectRepository(User)
         private readonly userRepo: Repository<User>,
+        private readonly auditService: AuditService,
     ) { }
 
-    async createCheckoutSession(dto: CreateCheckoutSessionDto): Promise<CheckoutSessionResponse> {
+    async createCheckoutSession(dto: CreateCheckoutSessionDto, currentUser?: RequestUser): Promise<CheckoutSessionResponse> {
         const stripe = this.getStripeClient();
         const tenant = await this.tenantRepo.findOne({ where: { id: dto.tenantId } });
         if (!tenant) {
@@ -88,11 +123,39 @@ export class BillingService {
             throw new BadRequestException(`Plan "${plan.name}" is not active`);
         }
         if (!plan.stripePriceId) {
+            await this.auditService.log({
+                eventType: 'PLAN_STRIPE_PRICE_ID_MISSING',
+                category: AuditLogCategory.PLAN,
+                severity: AuditLogSeverity.WARNING,
+                message: `Checkout blocked because plan ${plan.name} has no Stripe Price ID`,
+                actor: await this.auditService.resolveActor(currentUser),
+                tenantId: tenant.id,
+                tenantName: tenant.name,
+                targetType: 'plan',
+                targetId: plan.id,
+            });
             throw new BadRequestException(`Plan "${plan.name}" does not have a Stripe price ID configured`);
         }
 
+        const activeSubscription = await this.subscriptionRepo.findOne({
+            where: {
+                tenantId: tenant.id,
+                planId: plan.id,
+                status: SubscriptionStatus.ACTIVE,
+            },
+        });
+        if (activeSubscription) {
+            throw new ConflictException('Tenant already has active billing for this plan.');
+        }
+
         const customerId = await this.getOrCreateCustomer(stripe, tenant);
-        const localSubscription = await this.createOrUpdatePendingSubscription(tenant, plan);
+        const localSubscription = await this.preparePendingTenantCheckout(
+            stripe,
+            tenant,
+            plan,
+            'Checkout session created; awaiting Stripe confirmation.',
+            'supervisor manual checkout',
+        );
         const successUrl = this.buildFrontendUrl(
             this.configService.get<string>('STRIPE_SUCCESS_PATH') ?? '/platform/billing/success',
             '?session_id={CHECKOUT_SESSION_ID}',
@@ -105,6 +168,9 @@ export class BillingService {
             tenantId: String(tenant.id),
             planId: String(plan.id),
             localSubscriptionId: String(localSubscription.id),
+            subscriptionId: String(localSubscription.id),
+            source: 'supervisor_manual_checkout',
+            checkoutAttemptId: randomUUID(),
         };
 
         const session = await stripe.checkout.sessions.create(this.buildCheckoutSessionParams(plan, {
@@ -116,6 +182,128 @@ export class BillingService {
 
         localSubscription.stripeCheckoutSessionId = session.id;
         await this.subscriptionRepo.save(localSubscription);
+        await this.auditService.logBilling({
+            eventType: 'SUPERVISOR_MANUAL_CHECKOUT_SESSION_CREATED',
+            message: `Supervisor manual checkout session was created for ${tenant.name} on plan ${plan.name}`,
+            actor: await this.auditService.resolveActor(currentUser),
+            tenantId: tenant.id,
+            tenantName: tenant.name,
+            targetType: 'subscription',
+            targetId: localSubscription.id,
+            metadata: {
+                planId: plan.id,
+                planName: plan.name,
+                billingType: plan.billingType,
+                stripeCheckoutSessionId: session.id,
+            },
+        });
+
+        if (!session.url) {
+            throw new ServiceUnavailableException('Stripe did not return a checkout URL');
+        }
+
+        return {
+            checkoutUrl: session.url,
+            sessionId: session.id,
+        };
+    }
+
+    async createTenantAdminCheckoutSession(
+        user: RequestUser,
+        dto: { planId: number },
+    ): Promise<CheckoutSessionResponse> {
+        if (user.role !== UserRole.ADMIN) {
+            throw new ForbiddenException('Only tenant administrators can manage billing for their organization.');
+        }
+
+        const currentUser = await this.userRepo.findOne({ where: { id: user.id }, relations: ['tenant'] });
+        if (!currentUser || currentUser.role !== UserRole.ADMIN) {
+            throw new ForbiddenException('Only tenant administrators can manage billing for their organization.');
+        }
+        if (!currentUser.tenantId || !currentUser.tenant) {
+            throw new BadRequestException('Organization setup is required before choosing a plan.');
+        }
+
+        const stripe = this.getStripeClient();
+        const tenant = await this.tenantRepo.findOne({ where: { id: currentUser.tenantId } });
+        if (!tenant) {
+            throw new NotFoundException(`Tenant #${currentUser.tenantId} not found`);
+        }
+
+        const plan = await this.planRepo.findOne({ where: { id: dto.planId } });
+        if (!plan) {
+            throw new NotFoundException(`Plan #${dto.planId} not found`);
+        }
+        if (!plan.isActive) {
+            throw new BadRequestException(`Plan "${plan.name}" is not active`);
+        }
+        if (!plan.stripePriceId) {
+            await this.auditService.log({
+                eventType: 'PLAN_STRIPE_PRICE_ID_MISSING',
+                category: AuditLogCategory.PLAN,
+                severity: AuditLogSeverity.WARNING,
+                message: `Tenant checkout blocked because plan ${plan.name} has no Stripe Price ID`,
+                actor: await this.auditService.resolveActor(user),
+                tenantId: tenant.id,
+                tenantName: tenant.name,
+                targetType: 'plan',
+                targetId: plan.id,
+            });
+            throw new BadRequestException(`Plan "${plan.name}" is not ready for online checkout`);
+        }
+
+        const activeSubscription = await this.subscriptionRepo.findOne({
+            where: {
+                tenantId: tenant.id,
+                planId: plan.id,
+                status: SubscriptionStatus.ACTIVE,
+            },
+        });
+        if (activeSubscription) {
+            throw new ConflictException('You already have this plan active.');
+        }
+
+        const customerId = await this.getOrCreateCustomer(stripe, tenant);
+        const localSubscription = await this.preparePendingTenantCheckout(
+            stripe,
+            tenant,
+            plan,
+            'Tenant admin checkout session created; awaiting Stripe confirmation.',
+            'tenant admin checkout',
+        );
+        const metadata = {
+            tenantId: String(tenant.id),
+            planId: String(plan.id),
+            subscriptionId: String(localSubscription.id),
+            localSubscriptionId: String(localSubscription.id),
+            source: 'tenant_admin_upgrade',
+            checkoutAttemptId: randomUUID(),
+        };
+
+        const session = await stripe.checkout.sessions.create(this.buildCheckoutSessionParams(plan, {
+            customer: customerId,
+            successUrl: this.buildFrontendUrl('/profile/billing/success', '?session_id={CHECKOUT_SESSION_ID}'),
+            cancelUrl: this.buildFrontendUrl('/profile/billing/cancel'),
+            metadata,
+        }));
+
+        localSubscription.stripeCheckoutSessionId = session.id;
+        await this.subscriptionRepo.save(localSubscription);
+        await this.auditService.logBilling({
+            eventType: 'TENANT_ADMIN_CHECKOUT_SESSION_CREATED',
+            message: `Tenant admin checkout session was created for ${tenant.name} on plan ${plan.name}`,
+            actor: await this.auditService.resolveActor(user),
+            tenantId: tenant.id,
+            tenantName: tenant.name,
+            targetType: 'subscription',
+            targetId: localSubscription.id,
+            metadata: {
+                planId: plan.id,
+                planName: plan.name,
+                billingType: plan.billingType,
+                stripeCheckoutSessionId: session.id,
+            },
+        });
 
         if (!session.url) {
             throw new ServiceUnavailableException('Stripe did not return a checkout URL');
@@ -144,6 +332,15 @@ export class BillingService {
             throw new BadRequestException(`Plan "${plan.name}" is not active`);
         }
         if (!plan.stripePriceId) {
+            await this.auditService.log({
+                eventType: 'PLAN_STRIPE_PRICE_ID_MISSING',
+                category: AuditLogCategory.PLAN,
+                severity: AuditLogSeverity.WARNING,
+                message: `Public onboarding checkout blocked because plan ${plan.name} has no Stripe Price ID`,
+                targetType: 'plan',
+                targetId: plan.id,
+                metadata: { adminEmail, companyName },
+            });
             throw new BadRequestException(`Plan "${plan.name}" is not ready for online checkout`);
         }
 
@@ -168,14 +365,16 @@ export class BillingService {
                 { adminEmail, status: PublicSignupStatus.PENDING_PAYMENT },
                 { companyName, status: PublicSignupStatus.PENDING_PAYMENT },
             ],
+            relations: ['plan'],
             order: { createdAt: 'DESC' },
         });
+
+        let previousCustomerId: string | null = null;
         if (pendingSignup) {
-            pendingSignup.status = PublicSignupStatus.EXPIRED;
-            await this.publicSignupRepo.save(pendingSignup);
+            previousCustomerId = await this.expirePendingPublicSignupCheckout(stripe, pendingSignup);
         }
 
-        let customerId = pendingSignup?.stripeCustomerId ?? null;
+        let customerId = previousCustomerId ?? pendingSignup?.stripeCustomerId ?? null;
         if (!customerId) {
             const customer = await stripe.customers.create({
                 email: adminEmail,
@@ -218,6 +417,22 @@ export class BillingService {
 
         signup.stripeCheckoutSessionId = session.id;
         await this.publicSignupRepo.save(signup);
+        await this.auditService.logBilling({
+            eventType: 'PUBLIC_ONBOARDING_CHECKOUT_SESSION_CREATED',
+            message: `Public onboarding checkout session was created for ${companyName}`,
+            actorRole: 'PUBLIC',
+            actorEmail: adminEmail,
+            targetType: 'public_signup',
+            targetId: signup.id,
+            metadata: {
+                planId: plan.id,
+                planName: plan.name,
+                billingType: plan.billingType,
+                stripeCheckoutSessionId: session.id,
+                companyName,
+                adminEmail,
+            },
+        });
 
         if (!session.url) {
             throw new ServiceUnavailableException('Stripe did not return a checkout URL');
@@ -226,6 +441,59 @@ export class BillingService {
         return {
             checkoutUrl: session.url,
             sessionId: session.id,
+        };
+    }
+
+    async listPublicSignups(query: ListPublicSignupsQueryDto = {}): Promise<PublicSignupRecord[]> {
+        const limit = query.limit ?? 50;
+        const page = query.page ?? 1;
+        const where: FindOptionsWhere<PublicSignup> = {};
+        if (query.status) {
+            where.status = query.status;
+        }
+
+        const signups = await this.publicSignupRepo.find({
+            where,
+            relations: ['plan'],
+            order: { createdAt: 'DESC' },
+            take: limit,
+            skip: (page - 1) * limit,
+        });
+
+        return signups.map((signup) => this.toPublicSignupRecord(signup));
+    }
+
+    async getPublicSignup(id: number): Promise<PublicSignupRecord> {
+        const signup = await this.publicSignupRepo.findOne({
+            where: { id },
+            relations: ['plan'],
+        });
+        if (!signup) {
+            throw new NotFoundException(`Public signup #${id} not found`);
+        }
+
+        return this.toPublicSignupRecord(signup);
+    }
+
+    private toPublicSignupRecord(signup: PublicSignup): PublicSignupRecord {
+        return {
+            id: signup.id,
+            companyName: signup.companyName,
+            adminFullName: signup.adminFullName,
+            adminEmail: signup.adminEmail,
+            phone: signup.phone,
+            planId: signup.planId,
+            planName: signup.plan?.name ?? `Plan #${signup.planId}`,
+            billingType: signup.plan?.billingType ?? PlanBillingType.RECURRING,
+            status: signup.status,
+            failureReason: signup.failureReason,
+            stripeCheckoutSessionId: signup.stripeCheckoutSessionId,
+            tenantId: signup.tenantId,
+            adminUserId: signup.adminUserId,
+            subscriptionId: signup.subscriptionId,
+            completedAt: signup.completedAt,
+            createdAt: signup.createdAt,
+            updatedAt: signup.updatedAt,
         };
     }
 
@@ -265,6 +533,65 @@ export class BillingService {
         };
     }
 
+    private async expirePendingPublicSignupCheckout(stripe: any, signup: PublicSignup): Promise<string | null> {
+        if (!signup.stripeCheckoutSessionId) {
+            signup.status = PublicSignupStatus.EXPIRED;
+            await this.publicSignupRepo.save(signup);
+            this.logger.log(`Expired pending public signup #${signup.id} without a Stripe checkout session`);
+            return signup.stripeCustomerId;
+        }
+
+        let session: StripeSessionPayload;
+        try {
+            session = await stripe.checkout.sessions.retrieve(signup.stripeCheckoutSessionId);
+        } catch (error) {
+            const message = this.errorMessage(error);
+            this.logger.warn(`Could not retrieve old checkout session ${signup.stripeCheckoutSessionId} for signup #${signup.id}: ${message}`);
+            throw new ConflictException('A previous checkout is still being verified. Please try again shortly.');
+        }
+
+        const customerId = this.referenceId(session.customer) ?? signup.stripeCustomerId;
+        if (this.canProvisionCheckoutSession(signup.plan, session)) {
+            await this.completePublicOnboarding(signup.id, session);
+            throw new ConflictException('A previous checkout for this email or company was already paid. Check the admin email for the activation link.');
+        }
+
+        if (session.status === 'expired') {
+            signup.status = PublicSignupStatus.EXPIRED;
+            signup.stripeCustomerId = customerId;
+            await this.publicSignupRepo.save(signup);
+            this.logger.log(`Marked already-expired checkout session ${session.id} as expired for public signup #${signup.id}`);
+            return customerId;
+        }
+
+        try {
+            await stripe.checkout.sessions.expire(signup.stripeCheckoutSessionId);
+        } catch (error) {
+            const message = this.errorMessage(error);
+            if (this.isAlreadyExpiredStripeError(message)) {
+                this.logger.log(`Checkout session ${signup.stripeCheckoutSessionId} was already expired for public signup #${signup.id}`);
+            } else if (this.isCompletedStripeError(message)) {
+                const refreshed = await stripe.checkout.sessions.retrieve(signup.stripeCheckoutSessionId);
+                if (this.canProvisionCheckoutSession(signup.plan, refreshed)) {
+                    await this.completePublicOnboarding(signup.id, refreshed);
+                    throw new ConflictException('A previous checkout for this email or company was already paid. Check the admin email for the activation link.');
+                }
+
+                this.logger.warn(`Checkout session ${signup.stripeCheckoutSessionId} completed but is not paid; refusing to create a competing session`);
+                throw new ConflictException('A previous checkout is still being processed. Please try again shortly.');
+            } else {
+                this.logger.warn(`Could not expire old checkout session ${signup.stripeCheckoutSessionId} for signup #${signup.id}: ${message}`);
+                throw new ConflictException('A previous checkout session is still active. Please finish it or try again shortly.');
+            }
+        }
+
+        signup.status = PublicSignupStatus.EXPIRED;
+        signup.stripeCustomerId = customerId;
+        await this.publicSignupRepo.save(signup);
+        this.logger.log(`Expired old checkout session ${signup.stripeCheckoutSessionId} for public signup #${signup.id}`);
+        return customerId;
+    }
+
     async handleWebhook(rawBody: Buffer | undefined, signature: string | undefined): Promise<{ received: true }> {
         if (!rawBody) {
             throw new BadRequestException('Missing raw request body for Stripe webhook verification');
@@ -279,17 +606,37 @@ export class BillingService {
             throw new ServiceUnavailableException('Stripe webhook secret is not configured');
         }
 
-        let event: { type: string; data: { object: unknown } };
+        let event: { id?: string; type: string; data: { object: unknown } };
         try {
             event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Invalid Stripe webhook signature';
+            await this.auditService.logWebhook({
+                eventType: 'STRIPE_WEBHOOK_SIGNATURE_FAILED',
+                severity: AuditLogSeverity.ERROR,
+                message: 'Stripe webhook failed signature verification',
+                actorRole: 'STRIPE_WEBHOOK',
+                metadata: { reason: message },
+            });
             throw new BadRequestException(`Stripe webhook verification failed: ${message}`);
         }
 
+        await this.auditService.logWebhook({
+            eventType: 'STRIPE_WEBHOOK_RECEIVED',
+            message: `Stripe webhook received: ${event.type}`,
+            actorRole: 'STRIPE_WEBHOOK',
+            targetType: 'stripe_event',
+            targetId: event.id ?? null,
+            metadata: { stripeEventType: event.type },
+        });
+
         switch (event.type) {
             case 'checkout.session.completed':
-                await this.handleCheckoutCompleted(event.data.object as StripeSessionPayload);
+            case 'checkout.session.async_payment_succeeded':
+                await this.handleCheckoutCompleted(event.data.object as StripeSessionPayload, event.id);
+                break;
+            case 'checkout.session.async_payment_failed':
+                await this.handleCheckoutPaymentFailed(event.data.object as StripeSessionPayload, event.id);
                 break;
             case 'customer.subscription.created':
             case 'customer.subscription.updated':
@@ -303,6 +650,15 @@ export class BillingService {
                 await this.handleInvoice(event.data.object as StripeInvoicePayload, SubscriptionStatus.PAST_DUE);
                 break;
             default:
+                await this.auditService.logWebhook({
+                    eventType: 'STRIPE_WEBHOOK_IGNORED',
+                    severity: AuditLogSeverity.WARNING,
+                    message: `Stripe webhook ignored: ${event.type}`,
+                    actorRole: 'STRIPE_WEBHOOK',
+                    targetType: 'stripe_event',
+                    targetId: event.id ?? null,
+                    metadata: { stripeEventType: event.type },
+                });
                 this.logger.debug(`Ignoring Stripe event ${event.type}`);
         }
 
@@ -344,9 +700,30 @@ export class BillingService {
         return customer.id;
     }
 
-    private async createOrUpdatePendingSubscription(tenant: Tenant, plan: Plan): Promise<Subscription> {
+    private async preparePendingTenantCheckout(
+        stripe: any,
+        tenant: Tenant,
+        plan: Plan,
+        note: string,
+        context: string,
+    ): Promise<Subscription> {
+        const existingSubscription = await this.subscriptionRepo.findOne({
+            where: { tenantId: tenant.id },
+        });
+
+        await this.expirePreviousTenantCheckoutIfOpen(stripe, existingSubscription, context);
+
+        return this.createOrUpdatePendingSubscription(tenant, plan, note, existingSubscription);
+    }
+
+    private async createOrUpdatePendingSubscription(
+        tenant: Tenant,
+        plan: Plan,
+        note = 'Checkout session created; awaiting Stripe confirmation.',
+        existingSubscription?: Subscription | null,
+    ): Promise<Subscription> {
         const today = this.toDateOnly(new Date());
-        const subscription = await this.subscriptionRepo.findOne({
+        const subscription = existingSubscription ?? await this.subscriptionRepo.findOne({
             where: { tenantId: tenant.id },
         }) ?? this.subscriptionRepo.create({ tenantId: tenant.id, tenant });
 
@@ -357,15 +734,63 @@ export class BillingService {
         subscription.currentPeriodEnd = subscription.currentPeriodEnd ?? null;
         subscription.monthlyPrice = Number(plan.monthlyPrice);
         subscription.currency = plan.currency;
-        subscription.note = 'Checkout session created; awaiting Stripe confirmation.';
+        subscription.note = note;
 
         return this.subscriptionRepo.save(subscription);
     }
 
-    private async handleCheckoutCompleted(session: StripeSessionPayload): Promise<void> {
+    private async expirePreviousTenantCheckoutIfOpen(
+        stripe: any,
+        subscription: Subscription | null | undefined,
+        context: string,
+    ): Promise<void> {
+        if (!subscription?.stripeCheckoutSessionId) {
+            return;
+        }
+
+        let previousSession: StripeSessionPayload;
+        try {
+            previousSession = await stripe.checkout.sessions.retrieve(subscription.stripeCheckoutSessionId);
+        } catch (error) {
+            const message = this.errorMessage(error);
+            this.logger.warn(`Could not retrieve previous ${context} session ${subscription.stripeCheckoutSessionId}: ${message}`);
+            throw new ConflictException('A previous checkout is still being verified. Please try again shortly.');
+        }
+
+        if (this.isCheckoutSessionPaid(previousSession) || previousSession.status === 'complete') {
+            throw new ConflictException('A previous checkout has already completed and is being processed. Please wait before starting another checkout.');
+        }
+
+        if (previousSession.status === 'expired') {
+            return;
+        }
+
+        try {
+            await stripe.checkout.sessions.expire(subscription.stripeCheckoutSessionId);
+            this.logger.log(`Expired previous ${context} session ${subscription.stripeCheckoutSessionId}`);
+        } catch (error) {
+            const message = this.errorMessage(error);
+            if (this.isAlreadyExpiredStripeError(message)) {
+                this.logger.log(`Previous ${context} session ${subscription.stripeCheckoutSessionId} was already expired`);
+                return;
+            }
+            if (this.isCompletedStripeError(message)) {
+                throw new ConflictException('A previous checkout has already completed and is being processed. Please wait before starting another checkout.');
+            }
+            this.logger.warn(`Could not expire previous ${context} session ${subscription.stripeCheckoutSessionId}: ${message}`);
+            throw new ConflictException('A previous checkout session is still active. Please finish it or try again shortly.');
+        }
+    }
+
+    private async handleCheckoutCompleted(session: StripeSessionPayload, stripeEventId?: string): Promise<void> {
+        if (session.metadata?.source === 'tenant_admin_upgrade') {
+            await this.completeTenantAdminUpgrade(session);
+            return;
+        }
+
         const onboardingId = this.numberFromMetadata(session.metadata?.onboardingId);
         if (onboardingId) {
-            await this.completePublicOnboarding(onboardingId, session);
+            await this.completePublicOnboarding(onboardingId, session, stripeEventId);
             return;
         }
 
@@ -378,13 +803,16 @@ export class BillingService {
             tenantId: this.numberFromMetadata(session.metadata?.tenantId),
         });
 
-        if (session.metadata?.tenantId && customerId) {
-            await this.storeTenantCustomerId(Number(session.metadata.tenantId), customerId);
-        }
-
         if (!subscription) {
             this.logger.warn(`No local subscription matched checkout session ${session.id}`);
             return;
+        }
+        if (!this.isCurrentCheckoutSession(subscription, session, 'supervisor manual checkout')) {
+            return;
+        }
+
+        if (session.metadata?.tenantId && customerId) {
+            await this.storeTenantCustomerId(Number(session.metadata.tenantId), customerId);
         }
 
         subscription.stripeCheckoutSessionId = session.id;
@@ -392,12 +820,222 @@ export class BillingService {
             subscription.stripeSubscriptionId = stripeSubscriptionId;
             await this.syncStripeSubscription(stripeSubscriptionId, subscription);
         } else {
-            subscription.status = SubscriptionStatus.ACTIVE;
+            await this.activateCheckoutWithoutStripeSubscription(subscription, session);
+        }
+        await this.auditService.logWebhook({
+            eventType: 'CHECKOUT_SESSION_COMPLETED',
+            message: `Supervisor manual checkout completed for subscription #${subscription.id}`,
+            actorRole: 'STRIPE_WEBHOOK',
+            tenantId: subscription.tenantId,
+            targetType: 'subscription',
+            targetId: subscription.id,
+            metadata: {
+                stripeCheckoutSessionId: session.id,
+                stripeSubscriptionId,
+                source: session.metadata?.source ?? 'supervisor_manual_checkout',
+            },
+        });
+    }
+
+    private async completeTenantAdminUpgrade(session: StripeSessionPayload): Promise<void> {
+        const tenantId = this.numberFromMetadata(session.metadata?.tenantId);
+        const planId = this.numberFromMetadata(session.metadata?.planId);
+        if (!tenantId || !planId) {
+            this.logger.warn(`Tenant admin checkout session ${session.id} is missing tenant or plan metadata`);
+            return;
+        }
+
+        const [tenant, plan] = await Promise.all([
+            this.tenantRepo.findOne({ where: { id: tenantId } }),
+            this.planRepo.findOne({ where: { id: planId } }),
+        ]);
+        if (!tenant || !plan) {
+            this.logger.warn(`Tenant admin checkout session ${session.id} references a missing tenant or plan`);
+            return;
+        }
+
+        if ((plan.billingType ?? PlanBillingType.RECURRING) === PlanBillingType.ONE_TIME && !this.isCheckoutSessionPaid(session)) {
+            this.logger.warn(`Tenant admin one-time checkout session ${session.id} is not paid yet; activation deferred`);
+            return;
+        }
+
+        const stripeSubscriptionId = this.referenceId(session.subscription);
+        const subscription = await this.findLocalSubscription({
+            localSubscriptionId: this.numberFromMetadata(session.metadata?.subscriptionId)
+                ?? this.numberFromMetadata(session.metadata?.localSubscriptionId),
+            checkoutSessionId: session.id,
+            stripeSubscriptionId,
+            tenantId,
+        }) ?? this.subscriptionRepo.create({ tenantId, tenant });
+
+        if (!this.isCurrentCheckoutSession(subscription, session, 'tenant admin checkout')) {
+            return;
+        }
+
+        subscription.tenantId = tenant.id;
+        subscription.tenant = tenant;
+        subscription.planId = plan.id;
+        subscription.plan = plan;
+        subscription.status = SubscriptionStatus.PAST_DUE;
+        subscription.currentPeriodStart = subscription.currentPeriodStart ?? this.toDateOnly(new Date());
+        subscription.monthlyPrice = Number(plan.monthlyPrice);
+        subscription.currency = plan.currency;
+        subscription.note = 'Activated from tenant admin upgrade checkout.';
+        subscription.stripeCheckoutSessionId = session.id;
+
+        const customerId = this.referenceId(session.customer);
+        if (customerId) {
+            await this.storeTenantCustomerId(tenant.id, customerId);
+        }
+
+        if (stripeSubscriptionId) {
+            subscription.stripeSubscriptionId = stripeSubscriptionId;
+            await this.syncStripeSubscription(stripeSubscriptionId, subscription);
+            await this.auditService.logWebhook({
+                eventType: 'CHECKOUT_SESSION_COMPLETED',
+                message: `Tenant admin checkout completed for ${tenant.name}`,
+                actorRole: 'STRIPE_WEBHOOK',
+                tenantId: tenant.id,
+                tenantName: tenant.name,
+                targetType: 'subscription',
+                targetId: subscription.id,
+                metadata: { stripeCheckoutSessionId: session.id, stripeSubscriptionId, source: 'tenant_admin_upgrade' },
+            });
+            return;
+        }
+
+        await this.activateCheckoutWithoutStripeSubscription(subscription, session, plan);
+        await this.auditService.logWebhook({
+            eventType: 'CHECKOUT_SESSION_COMPLETED',
+            message: `Tenant admin checkout completed for ${tenant.name}`,
+            actorRole: 'STRIPE_WEBHOOK',
+            tenantId: tenant.id,
+            tenantName: tenant.name,
+            targetType: 'subscription',
+            targetId: subscription.id,
+            metadata: { stripeCheckoutSessionId: session.id, source: 'tenant_admin_upgrade' },
+        });
+    }
+
+    private async handleCheckoutPaymentFailed(session: StripeSessionPayload, stripeEventId?: string): Promise<void> {
+        const onboardingId = this.numberFromMetadata(session.metadata?.onboardingId);
+        if (!onboardingId) {
+            this.logger.debug(`Ignoring async payment failure for non-onboarding checkout session ${session.id}`);
+            return;
+        }
+
+        await this.publicSignupRepo.update(onboardingId, {
+            status: PublicSignupStatus.FAILED,
+            stripeCheckoutSessionId: session.id,
+            lastStripeEventId: stripeEventId ?? null,
+            failureReason: 'Stripe checkout async payment failed.',
+        });
+        await this.auditService.logWebhook({
+            eventType: 'PUBLIC_ONBOARDING_FAILED',
+            severity: AuditLogSeverity.ERROR,
+            message: `Public onboarding #${onboardingId} failed after Stripe async payment failure`,
+            actorRole: 'STRIPE_WEBHOOK',
+            targetType: 'public_signup',
+            targetId: onboardingId,
+            metadata: { stripeCheckoutSessionId: session.id, stripeEventId },
+        });
+        this.logger.warn(`Public signup #${onboardingId} marked failed after Stripe async payment failure`);
+    }
+
+    private isCurrentCheckoutSession(
+        subscription: Subscription,
+        session: StripeSessionPayload,
+        context: string,
+    ): boolean {
+        if (!subscription.stripeCheckoutSessionId || subscription.stripeCheckoutSessionId === session.id) {
+            return true;
+        }
+
+        this.logger.warn(
+            `Ignoring stale ${context} session ${session.id}; subscription #${subscription.id} currently expects ${subscription.stripeCheckoutSessionId}`,
+        );
+        void this.auditService.logWebhook({
+            eventType: 'STRIPE_WEBHOOK_STALE_CHECKOUT_IGNORED',
+            severity: AuditLogSeverity.WARNING,
+            message: `Stale ${context} checkout session was ignored`,
+            actorRole: 'STRIPE_WEBHOOK',
+            tenantId: subscription.tenantId,
+            targetType: 'subscription',
+            targetId: subscription.id,
+            metadata: {
+                stripeCheckoutSessionId: session.id,
+                expectedStripeCheckoutSessionId: subscription.stripeCheckoutSessionId,
+                context,
+            },
+        });
+        return false;
+    }
+
+    private async activateCheckoutWithoutStripeSubscription(
+        subscription: Subscription,
+        session: StripeSessionPayload,
+        plan?: Plan | null,
+    ): Promise<void> {
+        const resolvedPlan = plan
+            ?? subscription.plan
+            ?? await this.planRepo.findOne({ where: { id: subscription.planId } });
+        const billingType = resolvedPlan?.billingType ?? PlanBillingType.RECURRING;
+
+        if (billingType === PlanBillingType.RECURRING) {
+            subscription.status = SubscriptionStatus.PAST_DUE;
+            subscription.note = 'Stripe checkout completed without a subscription reference; awaiting Stripe subscription confirmation.';
             await this.subscriptionRepo.save(subscription);
+            this.logger.warn(`Recurring checkout session ${session.id} completed without a Stripe subscription reference`);
+            return;
+        }
+
+        if (!this.isCheckoutSessionPaid(session)) {
+            this.logger.warn(`One-time checkout session ${session.id} is not paid yet; activation deferred`);
+            return;
+        }
+
+        subscription.status = SubscriptionStatus.ACTIVE;
+        subscription.stripeSubscriptionId = null;
+        await this.subscriptionRepo.save(subscription);
+        await this.auditService.log({
+            eventType: 'ONE_TIME_PAYMENT_ACTIVATED',
+            category: AuditLogCategory.SUBSCRIPTION,
+            message: `One-time payment activated subscription #${subscription.id}`,
+            actorRole: 'STRIPE_WEBHOOK',
+            tenantId: subscription.tenantId,
+            targetType: 'subscription',
+            targetId: subscription.id,
+            metadata: { stripeCheckoutSessionId: session.id },
+        });
+    }
+
+    private async retrieveRecurringStripeSubscriptionForCheckout(
+        plan: Plan,
+        session: StripeSessionPayload,
+    ): Promise<StripeSubscriptionSyncResult> {
+        if ((plan.billingType ?? PlanBillingType.RECURRING) === PlanBillingType.ONE_TIME) {
+            return { subscription: null };
+        }
+
+        const stripeSubscriptionId = this.referenceId(session.subscription);
+        if (!stripeSubscriptionId) {
+            const failureReason = 'Stripe checkout completed without a subscription reference; awaiting Stripe subscription confirmation.';
+            this.logger.warn(`Recurring checkout session ${session.id} completed without a Stripe subscription reference`);
+            return { subscription: null, failureReason };
+        }
+
+        try {
+            const subscription = await this.getStripeClient().subscriptions.retrieve(stripeSubscriptionId);
+            return { subscription };
+        } catch (error) {
+            const message = this.errorMessage(error);
+            const failureReason = `Stripe subscription retrieval failed: ${message}`;
+            this.logger.warn(`Unable to retrieve Stripe subscription ${stripeSubscriptionId}: ${message}`);
+            return { subscription: null, failureReason };
         }
     }
 
-    private async completePublicOnboarding(onboardingId: number, session: StripeSessionPayload): Promise<void> {
+    private async completePublicOnboarding(onboardingId: number, session: StripeSessionPayload, stripeEventId?: string): Promise<void> {
         const signup = await this.publicSignupRepo.findOne({
             where: { id: onboardingId },
             relations: ['plan'],
@@ -407,42 +1045,273 @@ export class BillingService {
             this.logger.warn(`No public signup matched checkout session ${session.id}`);
             return;
         }
-        if (signup.status === PublicSignupStatus.COMPLETED) {
+        if (signup.status === PublicSignupStatus.COMPLETED && signup.tenantId && signup.adminUserId && signup.subscriptionId) {
             this.logger.debug(`Public signup #${signup.id} already completed`);
             return;
         }
-        if (signup.status === PublicSignupStatus.EXPIRED || signup.status === PublicSignupStatus.FAILED) {
+        if (signup.status === PublicSignupStatus.EXPIRED && !this.canProvisionCheckoutSession(signup.plan, session)) {
             this.logger.warn(`Ignoring checkout session ${session.id} for ${signup.status.toLowerCase()} public signup #${signup.id}`);
             return;
+        }
+        if (signup.status === PublicSignupStatus.FAILED) {
+            this.logger.warn(`Ignoring checkout session ${session.id} for failed public signup #${signup.id}`);
+            return;
+        }
+        if (!this.canProvisionCheckoutSession(signup.plan, session)) {
+            this.logger.warn(`Checkout session ${session.id} for public signup #${signup.id} is not paid yet; provisioning deferred`);
+            return;
+        }
+
+        const stripeSubscriptionSync = await this.retrieveRecurringStripeSubscriptionForCheckout(signup.plan, session);
+
+        const invitation = await this.dataSource.transaction((manager) =>
+            this.completePublicOnboardingInTransaction(manager, onboardingId, session, stripeEventId, stripeSubscriptionSync),
+        );
+
+        if (invitation) {
+            this.mailService.sendUserInvitation(invitation.email, invitation.token);
+        }
+
+        await this.auditService.logWebhook({
+            eventType: 'PUBLIC_ONBOARDING_COMPLETED',
+            message: `Public signup #${onboardingId} completed from Stripe checkout`,
+            actorRole: 'STRIPE_WEBHOOK',
+            tenantId: signup.tenantId,
+            tenantName: signup.companyName,
+            targetType: 'public_signup',
+            targetId: signup.id,
+            metadata: {
+                stripeCheckoutSessionId: session.id,
+                planId: signup.planId,
+                billingType: signup.plan.billingType,
+                adminEmail: signup.adminEmail,
+                stripeEventId,
+            },
+        });
+        this.logger.log(`Public signup #${onboardingId} completed from Stripe checkout session ${session.id}`);
+    }
+
+    private async completePublicOnboardingInTransaction(
+        manager: EntityManager,
+        onboardingId: number,
+        session: StripeSessionPayload,
+        stripeEventId?: string,
+        stripeSubscriptionSync?: StripeSubscriptionSyncResult,
+    ): Promise<{ email: string; token: string } | null> {
+        const signupRepo = manager.getRepository(PublicSignup);
+
+        const signup = await signupRepo.findOne({
+            where: { id: onboardingId },
+            relations: ['plan'],
+        });
+        if (!signup) {
+            this.logger.warn(`No public signup matched checkout session ${session.id}`);
+            return null;
+        }
+        if (signup.status === PublicSignupStatus.COMPLETED && signup.tenantId && signup.adminUserId && signup.subscriptionId) {
+            this.logger.debug(`Duplicate Stripe webhook ignored for completed public signup #${signup.id}`);
+            return null;
+        }
+        if (signup.status === PublicSignupStatus.FAILED) {
+            this.logger.warn(`Public signup #${signup.id} is failed; webhook completion skipped`);
+            return null;
         }
 
         signup.status = PublicSignupStatus.PAID;
         signup.stripeCheckoutSessionId = session.id;
         signup.stripeCustomerId = this.referenceId(session.customer) ?? signup.stripeCustomerId;
-        await this.publicSignupRepo.save(signup);
+        signup.lastStripeEventId = stripeEventId ?? signup.lastStripeEventId;
+        signup.failureReason = null;
+        await signupRepo.save(signup);
 
-        const existingUser = await this.userRepo.findOne({ where: { email: signup.adminEmail } });
-        if (existingUser && existingUser.id !== signup.adminUserId) {
-            signup.status = PublicSignupStatus.FAILED;
-            await this.publicSignupRepo.save(signup);
-            this.logger.error(`Cannot complete public signup #${signup.id}: email ${signup.adminEmail} is already registered`);
-            return;
+        if (!signup.adminUserId) {
+            const existingEmailUser = await manager.getRepository(User).findOne({ where: { email: signup.adminEmail } });
+            if (
+                existingEmailUser
+                && (!signup.tenantId || existingEmailUser.tenantId !== signup.tenantId || existingEmailUser.role !== UserRole.ADMIN)
+            ) {
+                signup.status = PublicSignupStatus.FAILED;
+                signup.failureReason = `Email "${signup.adminEmail}" is already registered to another user or tenant.`;
+                await signupRepo.save(signup);
+                this.logger.error(`Cannot complete public signup #${signup.id}: ${signup.failureReason}`);
+                return null;
+            }
         }
 
-        const tenant = await this.ensureOnboardingTenant(signup);
+        const tenant = await this.ensureOnboardingTenantInTransaction(manager, signup);
         signup.tenantId = tenant.id;
         signup.tenant = tenant;
-        await this.publicSignupRepo.save(signup);
+        await signupRepo.save(signup);
 
-        const adminUser = await this.ensureOnboardingAdminUser(signup, tenant.id);
-        signup.adminUserId = adminUser.id;
-        signup.adminUser = adminUser;
-        await this.publicSignupRepo.save(signup);
+        const adminResult = await this.ensureOnboardingAdminUserInTransaction(manager, signup, tenant.id);
+        if (!adminResult.user) {
+            signup.status = PublicSignupStatus.FAILED;
+            signup.failureReason = adminResult.failureReason ?? 'Unable to create onboarding admin user.';
+            await signupRepo.save(signup);
+            this.logger.error(`Cannot complete public signup #${signup.id}: ${signup.failureReason}`);
+            return null;
+        }
 
-        await this.ensureOnboardingSubscription(signup, tenant, session);
+        signup.adminUserId = adminResult.user.id;
+        signup.adminUser = adminResult.user;
+        await signupRepo.save(signup);
 
+        const subscription = await this.ensureOnboardingSubscriptionInTransaction(
+            manager,
+            signup,
+            tenant,
+            session,
+            stripeSubscriptionSync,
+        );
+
+        signup.subscriptionId = subscription.id;
+        signup.subscription = subscription;
         signup.status = PublicSignupStatus.COMPLETED;
-        await this.publicSignupRepo.save(signup);
+        signup.completedAt = signup.completedAt ?? new Date();
+        signup.lastStripeEventId = stripeEventId ?? signup.lastStripeEventId;
+        signup.failureReason = null;
+        await signupRepo.save(signup);
+
+        return adminResult.invitationToken
+            ? { email: signup.adminEmail, token: adminResult.invitationToken }
+            : null;
+    }
+
+    private async ensureOnboardingTenantInTransaction(
+        manager: EntityManager,
+        signup: PublicSignup,
+    ): Promise<Tenant> {
+        const tenantRepo = manager.getRepository(Tenant);
+        if (signup.tenantId) {
+            const existingTenant = await tenantRepo.findOne({ where: { id: signup.tenantId } });
+            if (existingTenant) {
+                return existingTenant;
+            }
+        }
+
+        return tenantRepo.save(tenantRepo.create({
+            name: signup.companyName,
+            isActive: true,
+            stripeCustomerId: signup.stripeCustomerId,
+        }));
+    }
+
+    private async ensureOnboardingAdminUserInTransaction(
+        manager: EntityManager,
+        signup: PublicSignup,
+        tenantId: number,
+    ): Promise<{ user: User | null; invitationToken?: string; failureReason?: string }> {
+        const userRepo = manager.getRepository(User);
+        if (signup.adminUserId) {
+            const existingUser = await userRepo.findOne({ where: { id: signup.adminUserId } });
+            if (existingUser) {
+                return { user: existingUser };
+            }
+        }
+
+        const existingEmailUser = await userRepo.findOne({ where: { email: signup.adminEmail } });
+        if (existingEmailUser) {
+            if (existingEmailUser.tenantId === tenantId && existingEmailUser.role === UserRole.ADMIN) {
+                return { user: existingEmailUser };
+            }
+
+            return {
+                user: null,
+                failureReason: `Email "${signup.adminEmail}" is already registered to another user or tenant.`,
+            };
+        }
+
+        const [firstName, lastName] = this.splitFullName(signup.adminFullName);
+        const invitationToken = randomUUID();
+        const adminUser = await userRepo.save(userRepo.create({
+            email: signup.adminEmail,
+            firstName,
+            lastName,
+            role: UserRole.ADMIN,
+            tenantId,
+            isActive: false,
+            invitationToken,
+        }));
+
+        return { user: adminUser, invitationToken };
+    }
+
+    private async ensureOnboardingSubscriptionInTransaction(
+        manager: EntityManager,
+        signup: PublicSignup,
+        tenant: Tenant,
+        session: StripeSessionPayload,
+        stripeSubscriptionSync?: StripeSubscriptionSyncResult,
+    ): Promise<Subscription> {
+        const subscriptionRepo = manager.getRepository(Subscription);
+        const stripeSubscriptionId = this.referenceId(session.subscription);
+        const existing = signup.subscriptionId
+            ? await subscriptionRepo.findOne({ where: { id: signup.subscriptionId } })
+            : await this.findLocalSubscriptionInTransaction(manager, {
+                checkoutSessionId: session.id,
+                stripeSubscriptionId,
+                tenantId: tenant.id,
+            });
+
+        const subscription = existing ?? subscriptionRepo.create({
+            tenantId: tenant.id,
+            tenant,
+        });
+
+        subscription.planId = signup.planId;
+        subscription.plan = signup.plan;
+        subscription.currentPeriodStart = subscription.currentPeriodStart ?? this.toDateOnly(new Date());
+        subscription.monthlyPrice = Number(signup.plan.monthlyPrice);
+        subscription.currency = signup.plan.currency;
+        subscription.note = 'Created from public SaaS onboarding checkout.';
+        subscription.stripeCheckoutSessionId = session.id;
+
+        if ((signup.plan.billingType ?? PlanBillingType.RECURRING) === PlanBillingType.ONE_TIME) {
+            subscription.status = SubscriptionStatus.ACTIVE;
+            subscription.stripeSubscriptionId = null;
+            return subscriptionRepo.save(subscription);
+        }
+
+        if (stripeSubscriptionSync?.subscription) {
+            this.applyStripeSubscriptionFields(subscription, stripeSubscriptionSync.subscription);
+        } else {
+            subscription.status = SubscriptionStatus.PAST_DUE;
+            subscription.stripeSubscriptionId = stripeSubscriptionId;
+            subscription.note = stripeSubscriptionSync?.failureReason
+                ?? 'Stripe subscription confirmation is pending for this recurring checkout.';
+        }
+
+        return subscriptionRepo.save(subscription);
+    }
+
+    private async findLocalSubscriptionInTransaction(
+        manager: EntityManager,
+        criteria: {
+            checkoutSessionId?: string | null;
+            stripeSubscriptionId?: string | null;
+            tenantId?: number;
+        },
+    ): Promise<Subscription | null> {
+        const subscriptionRepo = manager.getRepository(Subscription);
+        if (criteria.checkoutSessionId) {
+            const subscription = await subscriptionRepo.findOne({
+                where: { stripeCheckoutSessionId: criteria.checkoutSessionId },
+            });
+            if (subscription) return subscription;
+        }
+
+        if (criteria.stripeSubscriptionId) {
+            const subscription = await subscriptionRepo.findOne({
+                where: { stripeSubscriptionId: criteria.stripeSubscriptionId },
+            });
+            if (subscription) return subscription;
+        }
+
+        if (criteria.tenantId) {
+            return subscriptionRepo.findOne({ where: { tenantId: criteria.tenantId } });
+        }
+
+        return null;
     }
 
     private async handleStripeSubscription(stripeSubscription: StripeSubscriptionPayload): Promise<void> {
@@ -458,6 +1327,24 @@ export class BillingService {
         }
 
         await this.applyStripeSubscription(subscription, stripeSubscription);
+        await this.auditService.logWebhook({
+            eventType: stripeSubscription.status === 'deleted' || stripeSubscription.status === 'canceled'
+                ? 'STRIPE_SUBSCRIPTION_CANCELED'
+                : 'RECURRING_SUBSCRIPTION_ACTIVATED',
+            severity: stripeSubscription.status === 'deleted' || stripeSubscription.status === 'canceled'
+                ? AuditLogSeverity.WARNING
+                : AuditLogSeverity.INFO,
+            message: `Stripe subscription ${stripeSubscription.id} synced as ${subscription.status}`,
+            actorRole: 'STRIPE_WEBHOOK',
+            tenantId: subscription.tenantId,
+            targetType: 'subscription',
+            targetId: subscription.id,
+            metadata: {
+                stripeSubscriptionId: stripeSubscription.id,
+                stripeStatus: stripeSubscription.status,
+                localStatus: subscription.status,
+            },
+        });
     }
 
     private async handleInvoice(invoice: StripeInvoicePayload, status: SubscriptionStatus): Promise<void> {
@@ -475,6 +1362,18 @@ export class BillingService {
 
         subscription.status = status;
         await this.subscriptionRepo.save(subscription);
+        await this.auditService.logWebhook({
+            eventType: status === SubscriptionStatus.ACTIVE ? 'SUBSCRIPTION_ACTIVATED' : 'INVOICE_PAYMENT_FAILED',
+            severity: status === SubscriptionStatus.ACTIVE ? AuditLogSeverity.INFO : AuditLogSeverity.ERROR,
+            message: status === SubscriptionStatus.ACTIVE
+                ? `Invoice payment succeeded for subscription #${subscription.id}`
+                : `Invoice payment failed for subscription #${subscription.id}`,
+            actorRole: 'STRIPE_WEBHOOK',
+            tenantId: subscription.tenantId,
+            targetType: 'subscription',
+            targetId: subscription.id,
+            metadata: { stripeInvoiceId: invoice.id ?? null, stripeSubscriptionId },
+        });
     }
 
     private async syncStripeSubscription(stripeSubscriptionId: string, subscription: Subscription): Promise<void> {
@@ -484,7 +1383,8 @@ export class BillingService {
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown Stripe subscription retrieval error';
             this.logger.warn(`Unable to retrieve Stripe subscription ${stripeSubscriptionId}: ${message}`);
-            subscription.status = SubscriptionStatus.ACTIVE;
+            subscription.status = SubscriptionStatus.PAST_DUE;
+            subscription.note = `Stripe subscription retrieval failed: ${message}`;
             await this.subscriptionRepo.save(subscription);
         }
     }
@@ -493,19 +1393,9 @@ export class BillingService {
         subscription: Subscription,
         stripeSubscription: StripeSubscriptionPayload,
     ): Promise<void> {
-        const periodEnd = this.unixDate(stripeSubscription.current_period_end);
-        const periodStart = this.unixDate(stripeSubscription.current_period_start);
         const customerId = this.referenceId(stripeSubscription.customer);
 
-        subscription.stripeSubscriptionId = stripeSubscription.id;
-        subscription.status = mapStripeSubscriptionStatus(stripeSubscription.status);
-        if (periodStart) {
-            subscription.currentPeriodStart = this.toDateOnly(periodStart);
-        }
-        if (periodEnd) {
-            subscription.stripeCurrentPeriodEnd = periodEnd;
-            subscription.currentPeriodEnd = this.toDateOnly(periodEnd);
-        }
+        this.applyStripeSubscriptionFields(subscription, stripeSubscription);
 
         if (stripeSubscription.metadata?.planId) {
             const planId = Number(stripeSubscription.metadata.planId);
@@ -525,6 +1415,24 @@ export class BillingService {
         }
 
         await this.subscriptionRepo.save(subscription);
+    }
+
+    private applyStripeSubscriptionFields(
+        subscription: Subscription,
+        stripeSubscription: StripeSubscriptionPayload,
+    ): void {
+        const periodEnd = this.unixDate(stripeSubscription.current_period_end);
+        const periodStart = this.unixDate(stripeSubscription.current_period_start);
+
+        subscription.stripeSubscriptionId = stripeSubscription.id;
+        subscription.status = mapStripeSubscriptionStatus(stripeSubscription.status);
+        if (periodStart) {
+            subscription.currentPeriodStart = this.toDateOnly(periodStart);
+        }
+        if (periodEnd) {
+            subscription.stripeCurrentPeriodEnd = periodEnd;
+            subscription.currentPeriodEnd = this.toDateOnly(periodEnd);
+        }
     }
 
     private async ensureOnboardingTenant(signup: PublicSignup): Promise<Tenant> {
@@ -654,6 +1562,31 @@ export class BillingService {
         if (!value) return null;
         if (typeof value === 'string') return value;
         return value.id ?? null;
+    }
+
+    private canProvisionCheckoutSession(plan: Plan, session: StripeSessionPayload): boolean {
+        if ((plan.billingType ?? PlanBillingType.RECURRING) === PlanBillingType.ONE_TIME) {
+            return this.isCheckoutSessionPaid(session);
+        }
+
+        return session.status === 'complete' || this.isCheckoutSessionPaid(session);
+    }
+
+    private isCheckoutSessionPaid(session: StripeSessionPayload): boolean {
+        return session.payment_status === 'paid' || session.payment_status === 'no_payment_required';
+    }
+
+    private isAlreadyExpiredStripeError(message: string): boolean {
+        return message.toLowerCase().includes('expired');
+    }
+
+    private isCompletedStripeError(message: string): boolean {
+        const normalized = message.toLowerCase();
+        return normalized.includes('complete') || normalized.includes('completed') || normalized.includes('paid');
+    }
+
+    private errorMessage(error: unknown): string {
+        return error instanceof Error ? error.message : 'Unknown Stripe error';
     }
 
     private numberFromMetadata(value: string | null | undefined): number | undefined {

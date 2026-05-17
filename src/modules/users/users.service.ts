@@ -1,11 +1,18 @@
-import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, BadRequestException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, In } from 'typeorm';
+import * as bcrypt from 'bcrypt';
+import { AuditService } from '../../common/audit/audit.service';
+import { AuditLogCategory } from '../../common/audit/audit.types';
 import { User } from './entities/user.entity';
 import { UserRole } from '../../common/constants/enums';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateCurrentUserDto } from './dto/update-current-user.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Hotel } from '../hotel/entities/hotel.entity';
 import { RequestUser } from '../../common/interfaces/request.interface';
+
+const SALT_ROUNDS = 10;
 
 @Injectable()
 export class UsersService {
@@ -15,6 +22,7 @@ export class UsersService {
         private readonly userRepo: Repository<User>,
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,
+        private readonly auditService: AuditService,
     ) { }
 
     async findByEmail(email: string): Promise<User | null> {
@@ -22,11 +30,20 @@ export class UsersService {
     }
 
     async findById(id: number): Promise<User | null> {
-        return this.userRepo.findOne({ where: { id }, relations: ['hotels'] });
+        return this.userRepo.findOne({ where: { id }, relations: ['hotels', 'tenant'] });
+    }
+
+    async findCurrentProfile(id: number): Promise<ReturnType<UsersService['sanitizeUser']>> {
+        const user = await this.userRepo.findOne({ where: { id }, relations: ['hotels', 'tenant'] });
+        if (!user) {
+            throw new NotFoundException(`User #${id} not found`);
+        }
+
+        return this.sanitizeUser(user);
     }
 
     async findByInvitationToken(token: string): Promise<User | null> {
-        return this.userRepo.findOne({ where: { invitationToken: token } });
+        return this.userRepo.findOne({ where: { invitationToken: token, invitationCanceledAt: IsNull() } });
     }
 
     async findByResetToken(token: string): Promise<User | null> {
@@ -45,6 +62,16 @@ export class UsersService {
     }): Promise<User> {
         const existing = await this.findByEmail(data.email);
         if (existing) {
+            if (this.isCanceledPendingInvite(existing) && existing.tenantId === data.tenantId) {
+                existing.role = data.role;
+                existing.invitationToken = data.invitationToken;
+                existing.invitationCanceledAt = null;
+                existing.invitationCanceledByUserId = null;
+                existing.isActive = false;
+                existing.tenantId = (data.tenantId ?? undefined) as unknown as number;
+                existing.hotels = [];
+                return this.userRepo.save(existing);
+            }
             throw new ConflictException(`Email "${data.email}" is already registered`);
         }
         const user = this.userRepo.create({
@@ -86,7 +113,7 @@ export class UsersService {
             return 'ACTIVE';
         }
 
-        return user.invitationToken ? 'PENDING_INVITE' : 'SUSPENDED';
+        return user.invitationToken && !user.invitationCanceledAt ? 'PENDING_INVITE' : 'SUSPENDED';
     }
 
     private sanitizeUser(user: User) {
@@ -112,6 +139,7 @@ export class UsersService {
                 relations: ['hotels'],
                 withDeleted: true,
             });
+            users = users.filter((user) => !this.isCanceledPendingInvite(user));
         } else if (currentUser.role === UserRole.COMMERCIAL || currentUser.role === UserRole.AGENT) {
             const self = await this.userRepo.findOne({
                 where: { id: currentUser.id },
@@ -135,6 +163,56 @@ export class UsersService {
         }
 
         return users.map((user) => this.sanitizeUser(user));
+    }
+
+    async cancelPendingInvite(userId: number, currentUser: RequestUser): Promise<{ message: string; userId: number }> {
+        if (currentUser.role !== UserRole.ADMIN) {
+            throw new ForbiddenException('Only tenant administrators can remove pending invites.');
+        }
+
+        if (!currentUser.tenantId) {
+            throw new ForbiddenException('No active tenant is associated with this user.');
+        }
+
+        if (currentUser.id === userId) {
+            throw new BadRequestException('You cannot remove your own invite.');
+        }
+
+        const invitedUser = await this.userRepo.findOne({ where: { id: userId }, relations: ['hotels'] });
+        if (!invitedUser || invitedUser.tenantId !== currentUser.tenantId) {
+            throw new NotFoundException(`Pending invite #${userId} not found`);
+        }
+
+        if (invitedUser.role === UserRole.SUPERVISOR) {
+            throw new ForbiddenException('Supervisor users cannot be removed through tenant invite management.');
+        }
+
+        if (invitedUser.isActive || !invitedUser.invitationToken || invitedUser.invitationCanceledAt) {
+            throw new BadRequestException('Only pending invites can be removed.');
+        }
+
+        invitedUser.invitationCanceledAt = new Date();
+        invitedUser.invitationCanceledByUserId = currentUser.id;
+        invitedUser.invitationToken = null as unknown as string;
+        invitedUser.isActive = false;
+        invitedUser.hotels = [];
+
+        await this.userRepo.save(invitedUser);
+        await this.auditService.log({
+            eventType: 'INVITE_CANCELED',
+            category: AuditLogCategory.INVITE,
+            message: `Pending invite for ${invitedUser.email} was removed`,
+            actor: await this.auditService.resolveActor(currentUser),
+            tenantId: currentUser.tenantId,
+            targetType: 'user',
+            targetId: invitedUser.id,
+            metadata: { invitedEmail: invitedUser.email, invitedRole: invitedUser.role },
+        });
+
+        return {
+            message: 'Pending invite removed. The invite link is no longer valid.',
+            userId: invitedUser.id,
+        };
     }
 
     async update(id: number, dto: UpdateUserDto): Promise<User> {
@@ -167,6 +245,49 @@ export class UsersService {
         }
 
         return this.userRepo.save(user);
+    }
+
+    async updateCurrentProfile(id: number, dto: UpdateCurrentUserDto): Promise<ReturnType<UsersService['sanitizeUser']>> {
+        const user = await this.userRepo.findOne({ where: { id }, relations: ['hotels', 'tenant'] });
+        if (!user) {
+            throw new NotFoundException(`User #${id} not found`);
+        }
+
+        if (dto.firstName !== undefined) {
+            user.firstName = dto.firstName.trim();
+        }
+
+        if (dto.lastName !== undefined) {
+            user.lastName = dto.lastName.trim();
+        }
+
+        const saved = await this.userRepo.save(user);
+        return this.sanitizeUser(saved);
+    }
+
+    async changeCurrentPassword(id: number, dto: ChangePasswordDto): Promise<{ message: string }> {
+        const user = await this.userRepo.findOne({ where: { id } });
+        if (!user || !user.password) {
+            throw new UnauthorizedException('Current password is invalid.');
+        }
+
+        const passwordValid = await bcrypt.compare(dto.currentPassword, user.password);
+        if (!passwordValid) {
+            throw new UnauthorizedException('Current password is invalid.');
+        }
+
+        user.password = await bcrypt.hash(dto.newPassword, SALT_ROUNDS);
+        await this.userRepo.save(user);
+        await this.auditService.logAuth({
+            eventType: 'PASSWORD_CHANGED',
+            message: `Password was changed for ${user.email}`,
+            actorUserId: user.id,
+            actorEmail: user.email,
+            actorRole: user.role,
+            tenantId: user.tenantId ?? null,
+        });
+
+        return { message: 'Password changed successfully.' };
     }
 
     async findAssignedHotels(userId: number): Promise<Hotel[]> {
@@ -217,5 +338,9 @@ export class UsersService {
 
     async remove(id: number): Promise<ReturnType<UsersService['sanitizeUser']>> {
         return this.suspend(id);
+    }
+
+    private isCanceledPendingInvite(user: User): boolean {
+        return Boolean(user.invitationCanceledAt && !user.isActive && !user.password);
     }
 }

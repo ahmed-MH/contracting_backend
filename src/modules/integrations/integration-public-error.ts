@@ -1,6 +1,7 @@
 export type IntegrationErrorCode =
     | 'INVALID_API_KEY'
     | 'ENDPOINT_DISABLED'
+    | 'API_ACCESS_DISABLED'
     | 'RATE_LIMIT_EXCEEDED'
     | 'API_USER_INACTIVE'
     | 'PERMISSION_DENIED'

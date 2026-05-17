@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Request } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Request } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
@@ -8,6 +8,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { SkipHotelCheck } from '../../common/decorators/skip-hotel-check.decorator';
+import { AllowSuspendedTenant } from '../../common/decorators/allow-suspended-tenant.decorator';
 import { UserRole } from '../../common/constants/enums';
 import { UsersService } from '../users/users.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -36,6 +37,12 @@ export class AuthController {
     }
 
     @Public()
+    @Get('invite-status')
+    validateInvite(@Query('token') token?: string) {
+        return this.authService.validateInviteToken(token);
+    }
+
+    @Public()
     @Post('forgot-password')
     forgotPassword(@Body() dto: ForgotPasswordDto) {
         return this.authService.forgotPassword(dto);
@@ -50,6 +57,7 @@ export class AuthController {
     // ─── Protected routes ────────────────────────────────────────
 
     @Get('me')
+    @AllowSuspendedTenant()
     @Roles(UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.COMMERCIAL)
     getProfile(@Request() req: { user: { id: number; email: string; role: string } }) {
         return req.user;

@@ -4,6 +4,8 @@ import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { SkipHotelCheck } from '../../common/decorators/skip-hotel-check.decorator';
 import { UserRole } from '../../common/constants/enums';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../common/interfaces/request.interface';
 import { BillingService } from './billing.service';
 import { CreateCheckoutSessionDto } from './dto/create-checkout-session.dto';
 
@@ -14,8 +16,8 @@ export class BillingController {
 
     @Post('checkout-session')
     @Roles(UserRole.SUPERVISOR)
-    createCheckoutSession(@Body() dto: CreateCheckoutSessionDto) {
-        return this.billingService.createCheckoutSession(dto);
+    createCheckoutSession(@Body() dto: CreateCheckoutSessionDto, @CurrentUser() user: RequestUser) {
+        return this.billingService.createCheckoutSession(dto, user);
     }
 
     @Post('webhook')

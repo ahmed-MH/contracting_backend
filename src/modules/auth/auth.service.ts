@@ -16,8 +16,13 @@ import { InviteUserDto } from './dto/invite-user.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { TenantUsageService } from '../subscriptions/tenant-usage.service';
+import { AuditService } from '../../common/audit/audit.service';
+import { AuditLogCategory, AuditLogSeverity } from '../../common/audit/audit.types';
+import { RequestUser } from '../../common/interfaces/request.interface';
 
 const SALT_ROUNDS = 10;
+const INVALID_INVITE_MESSAGE = 'This invitation is no longer valid. Please contact your organization administrator.';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -28,6 +33,8 @@ export class AuthService implements OnModuleInit {
         private readonly usersService: UsersService,
         private readonly jwtService: JwtService,
         private readonly mailService: MailService,
+        private readonly tenantUsageService: TenantUsageService,
+        private readonly auditService: AuditService,
     ) { }
 
     // â”€â”€â”€ Seed Admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -54,19 +61,56 @@ export class AuthService implements OnModuleInit {
     async login(dto: LoginDto) {
         const user = await this.usersService.findByEmail(dto.email);
         if (!user || !user.password) {
+            await this.auditService.logAuth({
+                eventType: 'LOGIN_FAILED',
+                severity: AuditLogSeverity.WARNING,
+                message: `Login failed for ${dto.email}`,
+                actorEmail: dto.email,
+                metadata: { reason: 'invalid_credentials' },
+            });
             throw new UnauthorizedException('Invalid credentials');
         }
 
         const passwordValid = await bcrypt.compare(dto.password, user.password);
         if (!passwordValid) {
+            await this.auditService.logAuth({
+                eventType: 'LOGIN_FAILED',
+                severity: AuditLogSeverity.WARNING,
+                message: `Login failed for ${dto.email}`,
+                actorUserId: user.id,
+                actorEmail: user.email,
+                actorRole: user.role,
+                tenantId: user.tenantId ?? null,
+                metadata: { reason: 'invalid_credentials' },
+            });
             throw new UnauthorizedException('Invalid credentials');
         }
 
         if (!user.isActive && user.invitationToken) {
+            await this.auditService.logAuth({
+                eventType: 'LOGIN_FAILED',
+                severity: AuditLogSeverity.WARNING,
+                message: `Inactive invited account ${user.email} attempted to login`,
+                actorUserId: user.id,
+                actorEmail: user.email,
+                actorRole: user.role,
+                tenantId: user.tenantId ?? null,
+                metadata: { reason: 'pending_invite' },
+            });
             throw new UnauthorizedException('Account is not activated. Check your invitation email.');
         }
 
         if (!user.isActive) {
+            await this.auditService.logAuth({
+                eventType: 'LOGIN_FAILED',
+                severity: AuditLogSeverity.WARNING,
+                message: `Suspended account ${user.email} attempted to login`,
+                actorUserId: user.id,
+                actorEmail: user.email,
+                actorRole: user.role,
+                tenantId: user.tenantId ?? null,
+                metadata: { reason: 'suspended_account' },
+            });
             throw new UnauthorizedException('Account is suspended. Contact your administrator.');
         }
 
@@ -80,6 +124,15 @@ export class AuthService implements OnModuleInit {
             hotelIds: user.hotels?.map(h => h.id) || [],
             tenantId: user.tenantId || null
         };
+        await this.auditService.logAuth({
+            eventType: 'LOGIN_SUCCESS',
+            message: `User ${user.email} logged in`,
+            actorUserId: user.id,
+            actorEmail: user.email,
+            actorRole: user.role,
+            tenantId: user.tenantId ?? null,
+        });
+
         return {
             accessToken: this.jwtService.sign(payload),
             user: {
@@ -88,18 +141,30 @@ export class AuthService implements OnModuleInit {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 role: user.role,
+                tenantId: user.tenantId || null,
+                hotelIds: user.hotels?.map(h => h.id) || [],
             },
         };
     }
 
     // â”€â”€â”€ Invite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    async invite(dto: InviteUserDto, currentUser: { tenantId: number | null }) {
+    async invite(dto: InviteUserDto, currentUser: RequestUser) {
+        if (!currentUser.tenantId) {
+            throw new BadRequestException('No active tenant is associated with this user.');
+        }
+
+        if ((dto.role as UserRole) === UserRole.SUPERVISOR) {
+            throw new BadRequestException('This role cannot be invited to a tenant.');
+        }
+
         // ADMIN = global, no hotel required. COMMERCIAL/AGENT = must have at least one hotel.
         if (dto.role === UserRole.COMMERCIAL || dto.role === UserRole.AGENT) {
             if (!dto.hotelIds || dto.hotelIds.length === 0) {
                 throw new BadRequestException('This role must be assigned to at least one hotel.');
             }
         }
+
+        await this.tenantUsageService.assertCanInviteUser(currentUser.tenantId);
 
         const token = randomUUID();
 
@@ -116,6 +181,16 @@ export class AuthService implements OnModuleInit {
         }
 
         this.mailService.sendUserInvitation(dto.email, token);
+        await this.auditService.log({
+            eventType: 'USER_INVITED',
+            category: AuditLogCategory.INVITE,
+            message: `User ${dto.email} was invited as ${dto.role}`,
+            actor: await this.auditService.resolveActor(currentUser),
+            tenantId: currentUser.tenantId,
+            targetType: 'user',
+            targetId: user.id,
+            metadata: { invitedEmail: dto.email, invitedRole: dto.role, hotelIds: dto.hotelIds ?? [] },
+        });
 
         return { message: `Invitation sent to ${dto.email}` };
     }
@@ -123,8 +198,8 @@ export class AuthService implements OnModuleInit {
     // â”€â”€â”€ Accept Invite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async acceptInvite(dto: AcceptInviteDto) {
         const user = await this.usersService.findByInvitationToken(dto.token);
-        if (!user) {
-            throw new BadRequestException('Invalid or expired invitation token');
+        if (!user || user.invitationCanceledAt || !user.invitationToken) {
+            throw new BadRequestException(INVALID_INVITE_MESSAGE);
         }
 
         user.firstName = dto.firstName;
@@ -134,6 +209,17 @@ export class AuthService implements OnModuleInit {
         user.invitationToken = null as unknown as string;
 
         await this.usersService.save(user);
+        await this.auditService.log({
+            eventType: 'INVITE_ACCEPTED',
+            category: AuditLogCategory.INVITE,
+            message: `Invitation was accepted by ${user.email}`,
+            actorUserId: user.id,
+            actorEmail: user.email,
+            actorRole: user.role,
+            tenantId: user.tenantId ?? null,
+            targetType: 'user',
+            targetId: user.id,
+        });
 
         const payload = {
             sub: user.id,
@@ -153,8 +239,23 @@ export class AuthService implements OnModuleInit {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 role: user.role,
+                tenantId: user.tenantId || null,
+                hotelIds: user.hotels?.map(h => h.id) || [],
             },
         };
+    }
+
+    async validateInviteToken(token?: string) {
+        if (!token) {
+            throw new BadRequestException(INVALID_INVITE_MESSAGE);
+        }
+
+        const user = await this.usersService.findByInvitationToken(token);
+        if (!user || user.invitationCanceledAt || !user.invitationToken) {
+            throw new BadRequestException(INVALID_INVITE_MESSAGE);
+        }
+
+        return { valid: true };
     }
 
     // â”€â”€â”€ Forgot Password â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -185,6 +286,14 @@ export class AuthService implements OnModuleInit {
         user.password = await bcrypt.hash(dto.newPassword, SALT_ROUNDS);
         user.resetPasswordToken = null as unknown as string;
         await this.usersService.save(user);
+        await this.auditService.logAuth({
+            eventType: 'PASSWORD_RESET',
+            message: `Password was reset for ${user.email}`,
+            actorUserId: user.id,
+            actorEmail: user.email,
+            actorRole: user.role,
+            tenantId: user.tenantId ?? null,
+        });
 
         return { message: 'Password has been reset successfully.' };
     }

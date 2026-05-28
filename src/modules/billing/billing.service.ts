@@ -32,6 +32,19 @@ export interface CheckoutSessionResponse {
     sessionId: string;
 }
 
+export interface CheckoutReconciliationResponse {
+    alreadyProcessed?: boolean;
+    requiresSync?: boolean;
+    resolved: boolean;
+    canRetry?: boolean;
+    billingStatus: SubscriptionStatus;
+    message: string;
+    sessionStatus?: string | null;
+    paymentStatus?: string | null;
+}
+
+export type CheckoutStartResponse = CheckoutSessionResponse | CheckoutReconciliationResponse;
+
 export interface PublicSignupRecord {
     id: number;
     companyName: string;
@@ -47,6 +60,14 @@ export interface PublicSignupRecord {
     tenantId: number | null;
     adminUserId: number | null;
     subscriptionId: number | null;
+    tenant: { id: number; name: string; isActive: boolean } | null;
+    adminUser: { id: number; name: string; email: string; isActive: boolean } | null;
+    subscription: { id: number; status: SubscriptionStatus; planName: string } | null;
+    checkout: { sessionIdPreview: string | null; hasSession: boolean };
+    provisioningState: 'AWAITING_PAYMENT' | 'PAYMENT_RECEIVED' | 'PROVISIONED' | 'INCOMPLETE' | 'FAILED' | 'EXPIRED';
+    isProvisioningIncomplete: boolean;
+    provisioningIssues: string[];
+    provisioningWarnings: string[];
     completedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
@@ -108,7 +129,7 @@ export class BillingService {
         private readonly auditService: AuditService,
     ) { }
 
-    async createCheckoutSession(dto: CreateCheckoutSessionDto, currentUser?: RequestUser): Promise<CheckoutSessionResponse> {
+    async createCheckoutSession(dto: CreateCheckoutSessionDto, currentUser?: RequestUser): Promise<CheckoutStartResponse> {
         const stripe = this.getStripeClient();
         const tenant = await this.tenantRepo.findOne({ where: { id: dto.tenantId } });
         if (!tenant) {
@@ -149,13 +170,18 @@ export class BillingService {
         }
 
         const customerId = await this.getOrCreateCustomer(stripe, tenant);
-        const localSubscription = await this.preparePendingTenantCheckout(
+        const checkoutPreparation = await this.preparePendingTenantCheckout(
             stripe,
             tenant,
             plan,
             'Checkout session created; awaiting Stripe confirmation.',
             'supervisor manual checkout',
+            currentUser,
         );
+        if (checkoutPreparation.reconciliation) {
+            return checkoutPreparation.reconciliation;
+        }
+        const localSubscription = checkoutPreparation.subscription;
         const successUrl = this.buildFrontendUrl(
             this.configService.get<string>('STRIPE_SUCCESS_PATH') ?? '/platform/billing/success',
             '?session_id={CHECKOUT_SESSION_ID}',
@@ -211,7 +237,7 @@ export class BillingService {
     async createTenantAdminCheckoutSession(
         user: RequestUser,
         dto: { planId: number },
-    ): Promise<CheckoutSessionResponse> {
+    ): Promise<CheckoutStartResponse> {
         if (user.role !== UserRole.ADMIN) {
             throw new ForbiddenException('Only tenant administrators can manage billing for their organization.');
         }
@@ -264,13 +290,18 @@ export class BillingService {
         }
 
         const customerId = await this.getOrCreateCustomer(stripe, tenant);
-        const localSubscription = await this.preparePendingTenantCheckout(
+        const checkoutPreparation = await this.preparePendingTenantCheckout(
             stripe,
             tenant,
             plan,
             'Tenant admin checkout session created; awaiting Stripe confirmation.',
             'tenant admin checkout',
+            user,
         );
+        if (checkoutPreparation.reconciliation) {
+            return checkoutPreparation.reconciliation;
+        }
+        const localSubscription = checkoutPreparation.subscription;
         const metadata = {
             tenantId: String(tenant.id),
             planId: String(plan.id),
@@ -454,7 +485,7 @@ export class BillingService {
 
         const signups = await this.publicSignupRepo.find({
             where,
-            relations: ['plan'],
+            relations: ['plan', 'tenant', 'adminUser', 'subscription', 'subscription.plan'],
             order: { createdAt: 'DESC' },
             take: limit,
             skip: (page - 1) * limit,
@@ -466,7 +497,7 @@ export class BillingService {
     async getPublicSignup(id: number): Promise<PublicSignupRecord> {
         const signup = await this.publicSignupRepo.findOne({
             where: { id },
-            relations: ['plan'],
+            relations: ['plan', 'tenant', 'adminUser', 'subscription', 'subscription.plan'],
         });
         if (!signup) {
             throw new NotFoundException(`Public signup #${id} not found`);
@@ -476,6 +507,11 @@ export class BillingService {
     }
 
     private toPublicSignupRecord(signup: PublicSignup): PublicSignupRecord {
+        const provisioningIssues = this.getPublicSignupProvisioningIssues(signup);
+        const provisioningWarnings = this.getPublicSignupProvisioningWarnings(signup);
+        const provisioningState = this.getPublicSignupProvisioningState(signup, provisioningIssues);
+        const checkoutPreview = this.previewStripeReference(signup.stripeCheckoutSessionId);
+
         return {
             id: signup.id,
             companyName: signup.companyName,
@@ -491,10 +527,109 @@ export class BillingService {
             tenantId: signup.tenantId,
             adminUserId: signup.adminUserId,
             subscriptionId: signup.subscriptionId,
+            tenant: signup.tenant
+                ? {
+                    id: signup.tenant.id,
+                    name: signup.tenant.name,
+                    isActive: signup.tenant.isActive,
+                }
+                : null,
+            adminUser: signup.adminUser
+                ? {
+                    id: signup.adminUser.id,
+                    name: this.formatUserDisplayName(signup.adminUser) ?? signup.adminFullName,
+                    email: signup.adminUser.email,
+                    isActive: signup.adminUser.isActive,
+                }
+                : null,
+            subscription: signup.subscription
+                ? {
+                    id: signup.subscription.id,
+                    status: signup.subscription.status,
+                    planName: signup.subscription.plan?.name ?? signup.plan?.name ?? `Plan #${signup.subscription.planId}`,
+                }
+                : null,
+            checkout: {
+                sessionIdPreview: checkoutPreview,
+                hasSession: Boolean(signup.stripeCheckoutSessionId),
+            },
+            provisioningState,
+            isProvisioningIncomplete: provisioningIssues.length > 0,
+            provisioningIssues,
+            provisioningWarnings,
             completedAt: signup.completedAt,
             createdAt: signup.createdAt,
             updatedAt: signup.updatedAt,
         };
+    }
+
+    private getPublicSignupProvisioningIssues(signup: PublicSignup): string[] {
+        if (signup.status !== PublicSignupStatus.COMPLETED) {
+            return [];
+        }
+
+        const issues: string[] = [];
+        if (!signup.tenantId || !signup.tenant) {
+            issues.push('Tenant was not linked');
+        }
+        if (!signup.adminUserId || !signup.adminUser) {
+            issues.push('Admin user was not linked');
+        }
+        if (!signup.subscriptionId || !signup.subscription) {
+            issues.push('Subscription was not linked');
+        }
+
+        return issues;
+    }
+
+    private getPublicSignupProvisioningWarnings(signup: PublicSignup): string[] {
+        if (signup.status !== PublicSignupStatus.COMPLETED) {
+            return [];
+        }
+
+        return signup.completedAt ? [] : ['Completion timestamp missing'];
+    }
+
+    private getPublicSignupProvisioningState(
+        signup: PublicSignup,
+        provisioningIssues: string[],
+    ): PublicSignupRecord['provisioningState'] {
+        if (signup.status === PublicSignupStatus.FAILED) {
+            return 'FAILED';
+        }
+        if (signup.status === PublicSignupStatus.EXPIRED) {
+            return 'EXPIRED';
+        }
+        if (signup.status === PublicSignupStatus.PAID) {
+            return 'PAYMENT_RECEIVED';
+        }
+        if (provisioningIssues.length > 0) {
+            return 'INCOMPLETE';
+        }
+        if (signup.status === PublicSignupStatus.COMPLETED) {
+            return 'PROVISIONED';
+        }
+        return 'AWAITING_PAYMENT';
+    }
+
+    private formatUserDisplayName(user: User): string | null {
+        const name = [user.firstName, user.lastName]
+            .map((part) => part?.trim())
+            .filter(Boolean)
+            .join(' ');
+
+        return name || null;
+    }
+
+    private previewStripeReference(value: string | null): string | null {
+        if (!value) {
+            return null;
+        }
+        if (value.length <= 18) {
+            return value;
+        }
+
+        return `${value.slice(0, 10)}...${value.slice(-6)}`;
     }
 
     private buildCheckoutSessionParams(
@@ -706,14 +841,21 @@ export class BillingService {
         plan: Plan,
         note: string,
         context: string,
-    ): Promise<Subscription> {
+        currentUser?: RequestUser,
+    ): Promise<{ subscription: Subscription; reconciliation?: undefined } | { subscription?: undefined; reconciliation: CheckoutReconciliationResponse }> {
         const existingSubscription = await this.subscriptionRepo.findOne({
             where: { tenantId: tenant.id },
+            relations: ['tenant', 'plan'],
         });
 
-        await this.expirePreviousTenantCheckoutIfOpen(stripe, existingSubscription, context);
+        const reconciliation = await this.expirePreviousTenantCheckoutIfOpen(stripe, existingSubscription, context, currentUser);
+        if (reconciliation && (!reconciliation.canRetry || reconciliation.resolved)) {
+            return { reconciliation };
+        }
 
-        return this.createOrUpdatePendingSubscription(tenant, plan, note, existingSubscription);
+        return {
+            subscription: await this.createOrUpdatePendingSubscription(tenant, plan, note, existingSubscription),
+        };
     }
 
     private async createOrUpdatePendingSubscription(
@@ -743,9 +885,10 @@ export class BillingService {
         stripe: any,
         subscription: Subscription | null | undefined,
         context: string,
-    ): Promise<void> {
+        currentUser?: RequestUser,
+    ): Promise<CheckoutReconciliationResponse | null> {
         if (!subscription?.stripeCheckoutSessionId) {
-            return;
+            return null;
         }
 
         let previousSession: StripeSessionPayload;
@@ -754,15 +897,24 @@ export class BillingService {
         } catch (error) {
             const message = this.errorMessage(error);
             this.logger.warn(`Could not retrieve previous ${context} session ${subscription.stripeCheckoutSessionId}: ${message}`);
-            throw new ConflictException('A previous checkout is still being verified. Please try again shortly.');
+            subscription.status = SubscriptionStatus.PAST_DUE;
+            subscription.note = `Stripe checkout retrieval failed: ${message}`;
+            await this.subscriptionRepo.save(subscription);
+            await this.auditCheckoutReconciliationKeptPastDue(subscription, context, message);
+            return this.checkoutReconciliationResult(subscription, {
+                resolved: false,
+                requiresSync: true,
+                message: 'Stripe checkout could not be retrieved. Try checking payment status again in a moment.',
+            });
         }
 
         if (this.isCheckoutSessionPaid(previousSession) || previousSession.status === 'complete') {
-            throw new ConflictException('A previous checkout has already completed and is being processed. Please wait before starting another checkout.');
+            const reconciliation = await this.reconcileSubscriptionCheckoutRecord(subscription, previousSession, context, currentUser);
+            return reconciliation.canRetry && !reconciliation.resolved ? null : reconciliation;
         }
 
         if (previousSession.status === 'expired') {
-            return;
+            return null;
         }
 
         try {
@@ -772,14 +924,281 @@ export class BillingService {
             const message = this.errorMessage(error);
             if (this.isAlreadyExpiredStripeError(message)) {
                 this.logger.log(`Previous ${context} session ${subscription.stripeCheckoutSessionId} was already expired`);
-                return;
+                return null;
             }
             if (this.isCompletedStripeError(message)) {
-                throw new ConflictException('A previous checkout has already completed and is being processed. Please wait before starting another checkout.');
+                const reconciliation = await this.reconcileSubscriptionCheckoutRecord(subscription, null, context, currentUser);
+                return reconciliation.canRetry && !reconciliation.resolved ? null : reconciliation;
             }
             this.logger.warn(`Could not expire previous ${context} session ${subscription.stripeCheckoutSessionId}: ${message}`);
             throw new ConflictException('A previous checkout session is still active. Please finish it or try again shortly.');
         }
+
+        return null;
+    }
+
+    async syncCurrentTenantCheckout(user: RequestUser): Promise<CheckoutReconciliationResponse> {
+        if (user.role !== UserRole.ADMIN) {
+            throw new ForbiddenException('Only tenant administrators can sync billing for their organization.');
+        }
+
+        const currentUser = await this.userRepo.findOne({ where: { id: user.id }, relations: ['tenant'] });
+        if (!currentUser || currentUser.role !== UserRole.ADMIN) {
+            throw new ForbiddenException('Only tenant administrators can sync billing for their organization.');
+        }
+        if (!currentUser.tenantId || !currentUser.tenant) {
+            throw new BadRequestException('Organization setup is required before syncing billing.');
+        }
+
+        const subscription = await this.subscriptionRepo.findOne({
+            where: { tenantId: currentUser.tenantId },
+            relations: ['tenant', 'plan'],
+            order: { updatedAt: 'DESC' },
+        });
+        if (!subscription) {
+            throw new BadRequestException('No subscription is available to sync.');
+        }
+
+        return this.reconcileSubscriptionCheckoutRecord(subscription, null, 'tenant admin payment sync', user);
+    }
+
+    private async reconcileSubscriptionCheckoutRecord(
+        subscription: Subscription,
+        preloadedSession: StripeSessionPayload | null,
+        context: string,
+        currentUser?: RequestUser,
+    ): Promise<CheckoutReconciliationResponse> {
+        const hydrated = await this.subscriptionRepo.findOne({
+            where: { id: subscription.id },
+            relations: ['tenant', 'plan'],
+        }) ?? subscription;
+
+        await this.auditService.logBilling({
+            eventType: 'CHECKOUT_RECONCILIATION_REQUESTED',
+            message: `Checkout reconciliation requested for subscription #${hydrated.id}`,
+            actor: await this.auditService.resolveActor(currentUser),
+            tenantId: hydrated.tenantId,
+            tenantName: hydrated.tenant?.name ?? null,
+            targetType: 'subscription',
+            targetId: hydrated.id,
+            metadata: {
+                context,
+                stripeCheckoutSessionId: hydrated.stripeCheckoutSessionId,
+                status: hydrated.status,
+            },
+        });
+
+        if (!hydrated.stripeCheckoutSessionId) {
+            return this.checkoutReconciliationResult(hydrated, {
+                resolved: false,
+                canRetry: true,
+                message: 'No previous checkout session is available to sync. You can retry checkout.',
+            });
+        }
+
+        let session = preloadedSession;
+        if (!session) {
+            try {
+                session = await this.getStripeClient().checkout.sessions.retrieve(hydrated.stripeCheckoutSessionId);
+            } catch (error) {
+                const message = this.errorMessage(error);
+                hydrated.status = SubscriptionStatus.PAST_DUE;
+                hydrated.note = `Stripe checkout retrieval failed: ${message}`;
+                await this.subscriptionRepo.save(hydrated);
+                await this.auditCheckoutReconciliationKeptPastDue(hydrated, context, message);
+                return this.checkoutReconciliationResult(hydrated, {
+                    resolved: false,
+                    requiresSync: true,
+                    message: 'Stripe checkout could not be retrieved. Try checking payment status again in a moment.',
+                });
+            }
+        }
+
+        const checkoutSession = session;
+        if (!checkoutSession) {
+            return this.checkoutReconciliationResult(hydrated, {
+                resolved: false,
+                requiresSync: true,
+                message: 'Stripe checkout could not be retrieved. Try checking payment status again in a moment.',
+            });
+        }
+
+        if (!this.checkoutSessionBelongsToSubscription(hydrated, checkoutSession)) {
+            await this.auditCheckoutReconciliationKeptPastDue(hydrated, context, 'Checkout session metadata did not match the subscription.');
+            return this.checkoutReconciliationResult(hydrated, {
+                resolved: false,
+                requiresSync: true,
+                message: 'The previous checkout session does not match this subscription. Contact support.',
+                session: checkoutSession,
+            });
+        }
+
+        if (!this.isCheckoutSessionPaid(checkoutSession) && checkoutSession.status !== 'complete') {
+            return this.checkoutReconciliationResult(hydrated, {
+                resolved: false,
+                canRetry: true,
+                message: 'Payment has not been confirmed yet. You can retry checkout.',
+                session: checkoutSession,
+            });
+        }
+
+        const plan = hydrated.plan ?? await this.planRepo.findOne({ where: { id: hydrated.planId } });
+        const billingType = plan?.billingType ?? PlanBillingType.RECURRING;
+
+        if (billingType === PlanBillingType.ONE_TIME || checkoutSession.mode === 'payment') {
+            if (this.isCheckoutSessionPaid(checkoutSession)) {
+                hydrated.status = SubscriptionStatus.ACTIVE;
+                hydrated.stripeCheckoutSessionId = checkoutSession.id;
+                hydrated.stripeSubscriptionId = null;
+                hydrated.note = 'Payment confirmed from Stripe checkout reconciliation.';
+                await this.subscriptionRepo.save(hydrated);
+                await this.auditCheckoutReconciliationActivated(hydrated, context, checkoutSession);
+                return this.checkoutReconciliationResult(hydrated, {
+                    resolved: true,
+                    alreadyProcessed: true,
+                    message: 'Payment confirmed and billing activated.',
+                    session: checkoutSession,
+                });
+            }
+
+            hydrated.status = SubscriptionStatus.PAST_DUE;
+            hydrated.note = 'Stripe checkout completed without confirmed payment.';
+            await this.subscriptionRepo.save(hydrated);
+            await this.auditCheckoutReconciliationKeptPastDue(hydrated, context, hydrated.note);
+            return this.checkoutReconciliationResult(hydrated, {
+                resolved: false,
+                canRetry: true,
+                message: 'Stripe checkout completed, but payment was not confirmed. You can retry checkout.',
+                session: checkoutSession,
+            });
+        }
+
+        const stripeSubscriptionId = this.referenceId(checkoutSession.subscription);
+        if (!stripeSubscriptionId) {
+            hydrated.status = SubscriptionStatus.PAST_DUE;
+            hydrated.note = 'Stripe checkout completed without a subscription reference; awaiting Stripe subscription confirmation.';
+            hydrated.stripeCheckoutSessionId = checkoutSession.id;
+            await this.subscriptionRepo.save(hydrated);
+            await this.auditCheckoutReconciliationKeptPastDue(hydrated, context, hydrated.note);
+            return this.checkoutReconciliationResult(hydrated, {
+                resolved: false,
+                requiresSync: true,
+                message: 'Stripe checkout completed, but the recurring subscription is still being confirmed.',
+                session: checkoutSession,
+            });
+        }
+
+        hydrated.stripeCheckoutSessionId = checkoutSession.id;
+        hydrated.stripeSubscriptionId = stripeSubscriptionId;
+        try {
+            const stripeSubscription = await this.getStripeClient().subscriptions.retrieve(stripeSubscriptionId);
+            await this.applyStripeSubscription(hydrated, stripeSubscription);
+        } catch (error) {
+            const message = this.errorMessage(error);
+            hydrated.status = SubscriptionStatus.PAST_DUE;
+            hydrated.note = `Stripe subscription retrieval failed: ${message}`;
+            await this.subscriptionRepo.save(hydrated);
+            await this.auditCheckoutReconciliationKeptPastDue(hydrated, context, message);
+            return this.checkoutReconciliationResult(hydrated, {
+                resolved: false,
+                requiresSync: true,
+                message: 'Stripe subscription could not be confirmed yet. Try checking payment status again in a moment.',
+                session: checkoutSession,
+            });
+        }
+
+        if (hydrated.status === SubscriptionStatus.ACTIVE) {
+            await this.auditCheckoutReconciliationActivated(hydrated, context, checkoutSession);
+            return this.checkoutReconciliationResult(hydrated, {
+                resolved: true,
+                alreadyProcessed: true,
+                message: 'Payment confirmed and billing activated.',
+                session: checkoutSession,
+            });
+        }
+
+        await this.auditCheckoutReconciliationKeptPastDue(hydrated, context, `Stripe subscription status mapped to ${hydrated.status}.`);
+        return this.checkoutReconciliationResult(hydrated, {
+            resolved: false,
+            requiresSync: true,
+            message: 'Stripe subscription is not active yet. Billing remains payment required.',
+            session: checkoutSession,
+        });
+    }
+
+    private checkoutSessionBelongsToSubscription(subscription: Subscription, session: StripeSessionPayload): boolean {
+        const metadata = session.metadata ?? {};
+        const metadataSubscriptionId = this.numberFromMetadata(metadata.subscriptionId)
+            ?? this.numberFromMetadata(metadata.localSubscriptionId);
+        const metadataTenantId = this.numberFromMetadata(metadata.tenantId);
+        const metadataPlanId = this.numberFromMetadata(metadata.planId);
+
+        if (metadataSubscriptionId && metadataSubscriptionId !== subscription.id) return false;
+        if (metadataTenantId && metadataTenantId !== subscription.tenantId) return false;
+        if (metadataPlanId && metadataPlanId !== subscription.planId) return false;
+        return session.id === subscription.stripeCheckoutSessionId;
+    }
+
+    private checkoutReconciliationResult(
+        subscription: Subscription,
+        input: {
+            resolved: boolean;
+            message: string;
+            session?: StripeSessionPayload;
+            alreadyProcessed?: boolean;
+            requiresSync?: boolean;
+            canRetry?: boolean;
+        },
+    ): CheckoutReconciliationResponse {
+        return {
+            resolved: input.resolved,
+            alreadyProcessed: input.alreadyProcessed,
+            requiresSync: input.requiresSync,
+            canRetry: input.canRetry,
+            billingStatus: subscription.status,
+            message: input.message,
+            sessionStatus: input.session?.status ?? null,
+            paymentStatus: input.session?.payment_status ?? null,
+        };
+    }
+
+    private async auditCheckoutReconciliationActivated(
+        subscription: Subscription,
+        context: string,
+        session: StripeSessionPayload,
+    ): Promise<void> {
+        await this.auditService.logBilling({
+            eventType: 'CHECKOUT_RECONCILIATION_ACTIVATED',
+            message: `Checkout reconciliation activated subscription #${subscription.id}`,
+            actorRole: 'STRIPE_SYNC',
+            tenantId: subscription.tenantId,
+            tenantName: subscription.tenant?.name ?? null,
+            targetType: 'subscription',
+            targetId: subscription.id,
+            metadata: {
+                context,
+                stripeCheckoutSessionId: session.id,
+                stripeSubscriptionId: this.referenceId(session.subscription),
+            },
+        });
+    }
+
+    private async auditCheckoutReconciliationKeptPastDue(
+        subscription: Subscription,
+        context: string,
+        reason: string,
+    ): Promise<void> {
+        await this.auditService.logBilling({
+            eventType: 'CHECKOUT_RECONCILIATION_KEPT_PAST_DUE',
+            severity: AuditLogSeverity.WARNING,
+            message: `Checkout reconciliation kept subscription #${subscription.id} as ${subscription.status}`,
+            actorRole: 'STRIPE_SYNC',
+            tenantId: subscription.tenantId,
+            tenantName: subscription.tenant?.name ?? null,
+            targetType: 'subscription',
+            targetId: subscription.id,
+            metadata: { context, reason },
+        });
     }
 
     private async handleCheckoutCompleted(session: StripeSessionPayload, stripeEventId?: string): Promise<void> {

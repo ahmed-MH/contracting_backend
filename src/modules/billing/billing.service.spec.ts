@@ -245,7 +245,7 @@ describe('BillingService', () => {
 
         expect(publicSignupRepo.find).toHaveBeenCalledWith(expect.objectContaining({
             where: { status: PublicSignupStatus.FAILED },
-            relations: ['plan'],
+            relations: ['plan', 'tenant', 'adminUser', 'subscription', 'subscription.plan'],
             order: { createdAt: 'DESC' },
             take: 25,
             skip: 25,
@@ -259,10 +259,93 @@ describe('BillingService', () => {
             status: PublicSignupStatus.FAILED,
             failureReason: 'Stripe checkout async payment failed.',
             stripeCheckoutSessionId: 'cs_test_123',
+            tenant: null,
+            adminUser: null,
+            subscription: null,
+            checkout: { sessionIdPreview: 'cs_test_123', hasSession: true },
+            provisioningState: 'FAILED',
+            isProvisioningIncomplete: false,
+            provisioningIssues: [],
+            provisioningWarnings: [],
             createdAt,
             updatedAt,
         })]);
         expect(result[0]).not.toHaveProperty('stripeCustomerId');
+    });
+
+    it('marks completed public signups with complete links but missing completedAt as provisioned with a warning', async () => {
+        const createdAt = new Date('2026-05-02T10:00:00.000Z');
+        const updatedAt = new Date('2026-05-02T10:05:00.000Z');
+        publicSignupRepo.find.mockResolvedValue([{
+            id: 13,
+            companyName: 'Incomplete Hotels',
+            adminFullName: 'Demo Admin',
+            adminEmail: 'admin@incomplete.test',
+            phone: null,
+            planId: 3,
+            plan: { id: 3, name: 'Launch', billingType: PlanBillingType.ONE_TIME },
+            status: PublicSignupStatus.COMPLETED,
+            failureReason: null,
+            stripeCheckoutSessionId: 'cs_test_long_reference_123456789',
+            tenantId: 5,
+            tenant: { id: 5, name: 'Incomplete Hotels', isActive: true },
+            adminUserId: 8,
+            adminUser: { id: 8, firstName: 'Demo', lastName: 'Admin', email: 'admin@incomplete.test', isActive: false },
+            subscriptionId: 10,
+            subscription: { id: 10, status: SubscriptionStatus.ACTIVE, planId: 3, plan: { id: 3, name: 'Launch' } },
+            completedAt: null,
+            createdAt,
+            updatedAt,
+        }]);
+
+        const result = await service.listPublicSignups();
+
+        expect(result[0]).toEqual(expect.objectContaining({
+            status: PublicSignupStatus.COMPLETED,
+            tenant: { id: 5, name: 'Incomplete Hotels', isActive: true },
+            adminUser: { id: 8, name: 'Demo Admin', email: 'admin@incomplete.test', isActive: false },
+            subscription: { id: 10, status: SubscriptionStatus.ACTIVE, planName: 'Launch' },
+            checkout: { sessionIdPreview: 'cs_test_lo...456789', hasSession: true },
+            provisioningState: 'PROVISIONED',
+            isProvisioningIncomplete: false,
+            provisioningIssues: [],
+            provisioningWarnings: ['Completion timestamp missing'],
+        }));
+    });
+
+    it('marks completed public signups missing subscription as incomplete', async () => {
+        const createdAt = new Date('2026-05-03T10:00:00.000Z');
+        const updatedAt = new Date('2026-05-03T10:05:00.000Z');
+        publicSignupRepo.find.mockResolvedValue([{
+            id: 14,
+            companyName: 'Missing Subscription Hotels',
+            adminFullName: 'Demo Admin',
+            adminEmail: 'admin@missing-sub.test',
+            phone: null,
+            planId: 3,
+            plan: { id: 3, name: 'Launch', billingType: PlanBillingType.ONE_TIME },
+            status: PublicSignupStatus.COMPLETED,
+            failureReason: null,
+            stripeCheckoutSessionId: 'cs_test_missing_subscription',
+            tenantId: 5,
+            tenant: { id: 5, name: 'Missing Subscription Hotels', isActive: true },
+            adminUserId: 8,
+            adminUser: { id: 8, firstName: 'Demo', lastName: 'Admin', email: 'admin@missing-sub.test', isActive: false },
+            subscriptionId: null,
+            subscription: null,
+            completedAt: createdAt,
+            createdAt,
+            updatedAt,
+        }]);
+
+        const result = await service.listPublicSignups();
+
+        expect(result[0]).toEqual(expect.objectContaining({
+            provisioningState: 'INCOMPLETE',
+            isProvisioningIncomplete: true,
+            provisioningIssues: ['Subscription was not linked'],
+            provisioningWarnings: [],
+        }));
     });
 
     it('uses Stripe payment mode for one-time plans', async () => {
@@ -516,6 +599,275 @@ describe('BillingService', () => {
         }, { planId: 8 })).rejects.toThrow(ConflictException);
     });
 
+    it('reconciles a completed one-time checkout instead of blocking tenant admin recovery', async () => {
+        const stripeCreateSession = jest.fn();
+        const stripeRetrieveSession = jest.fn().mockResolvedValue({
+            id: 'cs_completed_one_time',
+            mode: 'payment',
+            status: 'complete',
+            payment_status: 'paid',
+            metadata: { tenantId: '5', planId: '9', subscriptionId: '45' },
+        });
+        (service as unknown as { stripeClient: unknown }).stripeClient = {
+            checkout: { sessions: { create: stripeCreateSession, retrieve: stripeRetrieveSession } },
+        };
+        const tenant = { id: 5, name: 'Legacy Tenant', isActive: false, stripeCustomerId: 'cus_legacy' };
+        const plan = {
+            id: 9,
+            name: 'Launch',
+            isActive: true,
+            billingType: PlanBillingType.ONE_TIME,
+            stripePriceId: 'price_launch',
+            monthlyPrice: 499,
+            currency: 'USD',
+        };
+        const subscription = {
+            id: 45,
+            tenantId: 5,
+            tenant,
+            planId: 9,
+            plan,
+            status: SubscriptionStatus.PAST_DUE,
+            stripeCheckoutSessionId: 'cs_completed_one_time',
+            stripeSubscriptionId: null,
+            currentPeriodStart: null,
+            currentPeriodEnd: null,
+            monthlyPrice: 499,
+            currency: 'USD',
+            note: null,
+        };
+
+        userRepo.findOne.mockResolvedValue({ id: 10, role: UserRole.ADMIN, tenantId: 5, tenant });
+        tenantRepo.findOne.mockResolvedValue(tenant);
+        planRepo.findOne.mockResolvedValue(plan);
+        subscriptionRepo.findOne
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(subscription)
+            .mockResolvedValueOnce(subscription);
+        subscriptionRepo.save.mockImplementation(async (value) => value);
+
+        const result = await service.createTenantAdminCheckoutSession({
+            id: 10,
+            email: 'admin@example.com',
+            role: UserRole.ADMIN,
+            hotelIds: [],
+            tenantId: 5,
+        }, { planId: 9 });
+
+        expect(stripeCreateSession).not.toHaveBeenCalled();
+        expect(subscriptionRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+            id: 45,
+            status: SubscriptionStatus.ACTIVE,
+            stripeCheckoutSessionId: 'cs_completed_one_time',
+            stripeSubscriptionId: null,
+        }));
+        expect(result).toEqual(expect.objectContaining({
+            alreadyProcessed: true,
+            resolved: true,
+            billingStatus: SubscriptionStatus.ACTIVE,
+        }));
+        expect(tenant.isActive).toBe(false);
+    });
+
+    it('reconciles a completed recurring checkout only when Stripe subscription is active', async () => {
+        const stripeCreateSession = jest.fn();
+        const stripeRetrieveSession = jest.fn().mockResolvedValue({
+            id: 'cs_completed_recurring',
+            mode: 'subscription',
+            status: 'complete',
+            payment_status: 'paid',
+            subscription: 'sub_recovery',
+            customer: 'cus_legacy',
+            metadata: { tenantId: '5', planId: '8', subscriptionId: '44' },
+        });
+        const stripeRetrieveSubscription = jest.fn().mockResolvedValue({
+            id: 'sub_recovery',
+            status: 'trialing',
+            customer: 'cus_legacy',
+            metadata: { tenantId: '5' },
+            current_period_start: 1778774400,
+            current_period_end: 1781366400,
+        });
+        (service as unknown as { stripeClient: unknown }).stripeClient = {
+            checkout: { sessions: { create: stripeCreateSession, retrieve: stripeRetrieveSession } },
+            subscriptions: { retrieve: stripeRetrieveSubscription },
+        };
+        const tenant = { id: 5, name: 'Legacy Tenant', isActive: true, stripeCustomerId: 'cus_legacy' };
+        const plan = {
+            id: 8,
+            name: 'API Pro',
+            isActive: true,
+            billingType: PlanBillingType.RECURRING,
+            stripePriceId: 'price_api',
+            monthlyPrice: 99,
+            currency: 'USD',
+        };
+        const subscription = {
+            id: 44,
+            tenantId: 5,
+            tenant,
+            planId: 8,
+            plan,
+            status: SubscriptionStatus.PAST_DUE,
+            stripeCheckoutSessionId: 'cs_completed_recurring',
+            currentPeriodStart: null,
+            currentPeriodEnd: null,
+            monthlyPrice: 99,
+            currency: 'USD',
+            note: null,
+        };
+
+        userRepo.findOne.mockResolvedValue({ id: 10, role: UserRole.ADMIN, tenantId: 5, tenant });
+        tenantRepo.findOne.mockResolvedValue(tenant);
+        planRepo.findOne.mockResolvedValue(plan);
+        subscriptionRepo.findOne
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(subscription)
+            .mockResolvedValueOnce(subscription);
+        subscriptionRepo.save.mockImplementation(async (value) => value);
+
+        const result = await service.createTenantAdminCheckoutSession({
+            id: 10,
+            email: 'admin@example.com',
+            role: UserRole.ADMIN,
+            hotelIds: [],
+            tenantId: 5,
+        }, { planId: 8 });
+
+        expect(stripeCreateSession).not.toHaveBeenCalled();
+        expect(stripeRetrieveSubscription).toHaveBeenCalledWith('sub_recovery');
+        expect(subscriptionRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+            id: 44,
+            status: SubscriptionStatus.ACTIVE,
+            stripeSubscriptionId: 'sub_recovery',
+        }));
+        expect(result).toEqual(expect.objectContaining({
+            alreadyProcessed: true,
+            resolved: true,
+            billingStatus: SubscriptionStatus.ACTIVE,
+        }));
+    });
+
+    it('allows a new checkout when the completed previous session is unpaid', async () => {
+        const stripeCreateSession = jest.fn().mockResolvedValue({ id: 'cs_retry_after_unpaid', url: 'https://checkout.stripe.test/retry' });
+        const stripeRetrieveSession = jest.fn().mockResolvedValue({
+            id: 'cs_completed_unpaid',
+            mode: 'payment',
+            status: 'complete',
+            payment_status: 'unpaid',
+            metadata: { tenantId: '5', planId: '9', subscriptionId: '45' },
+        });
+        (service as unknown as { stripeClient: unknown }).stripeClient = {
+            checkout: { sessions: { create: stripeCreateSession, retrieve: stripeRetrieveSession } },
+        };
+        const tenant = { id: 5, name: 'Legacy Tenant', stripeCustomerId: 'cus_legacy' };
+        const plan = {
+            id: 9,
+            name: 'Launch',
+            isActive: true,
+            billingType: PlanBillingType.ONE_TIME,
+            stripePriceId: 'price_launch',
+            monthlyPrice: 499,
+            currency: 'USD',
+        };
+        const subscription = {
+            id: 45,
+            tenantId: 5,
+            tenant,
+            planId: 9,
+            plan,
+            status: SubscriptionStatus.PAST_DUE,
+            stripeCheckoutSessionId: 'cs_completed_unpaid',
+            currentPeriodStart: null,
+            currentPeriodEnd: null,
+            monthlyPrice: 499,
+            currency: 'USD',
+            note: null,
+        };
+
+        userRepo.findOne.mockResolvedValue({ id: 10, role: UserRole.ADMIN, tenantId: 5, tenant });
+        tenantRepo.findOne.mockResolvedValue(tenant);
+        planRepo.findOne.mockResolvedValue(plan);
+        subscriptionRepo.findOne
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(subscription)
+            .mockResolvedValueOnce(subscription);
+        subscriptionRepo.save.mockImplementation(async (value) => ({ ...value, id: value.id ?? 45 }));
+
+        const result = await service.createTenantAdminCheckoutSession({
+            id: 10,
+            email: 'admin@example.com',
+            role: UserRole.ADMIN,
+            hotelIds: [],
+            tenantId: 5,
+        }, { planId: 9 });
+
+        expect(stripeCreateSession).toHaveBeenCalled();
+        expect(subscriptionRepo.save).toHaveBeenLastCalledWith(expect.objectContaining({
+            id: 45,
+            status: SubscriptionStatus.PAST_DUE,
+            stripeCheckoutSessionId: 'cs_retry_after_unpaid',
+        }));
+        expect(result).toEqual(expect.objectContaining({
+            checkoutUrl: 'https://checkout.stripe.test/retry',
+            sessionId: 'cs_retry_after_unpaid',
+        }));
+    });
+
+    it('syncs a tenant admin checkout session directly from the latest stored checkout', async () => {
+        const stripeRetrieveSession = jest.fn().mockResolvedValue({
+            id: 'cs_sync_paid',
+            mode: 'payment',
+            status: 'complete',
+            payment_status: 'paid',
+            metadata: { tenantId: '5', planId: '9', subscriptionId: '45' },
+        });
+        (service as unknown as { stripeClient: unknown }).stripeClient = {
+            checkout: { sessions: { retrieve: stripeRetrieveSession } },
+        };
+        const tenant = { id: 5, name: 'Legacy Tenant', isActive: false, stripeCustomerId: 'cus_legacy' };
+        const plan = { id: 9, name: 'Launch', billingType: PlanBillingType.ONE_TIME, monthlyPrice: 499, currency: 'USD' };
+        const subscription = {
+            id: 45,
+            tenantId: 5,
+            tenant,
+            planId: 9,
+            plan,
+            status: SubscriptionStatus.PAST_DUE,
+            stripeCheckoutSessionId: 'cs_sync_paid',
+            stripeSubscriptionId: null,
+            currentPeriodStart: null,
+            currentPeriodEnd: null,
+            monthlyPrice: 499,
+            currency: 'USD',
+            note: null,
+        };
+
+        userRepo.findOne.mockResolvedValue({ id: 10, role: UserRole.ADMIN, tenantId: 5, tenant });
+        subscriptionRepo.findOne
+            .mockResolvedValueOnce(subscription)
+            .mockResolvedValueOnce(subscription);
+        subscriptionRepo.save.mockImplementation(async (value) => value);
+
+        const result = await service.syncCurrentTenantCheckout({
+            id: 10,
+            email: 'admin@example.com',
+            role: UserRole.ADMIN,
+            hotelIds: [],
+            tenantId: 5,
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            resolved: true,
+            billingStatus: SubscriptionStatus.ACTIVE,
+        }));
+        expect(subscriptionRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+            id: 45,
+            status: SubscriptionStatus.ACTIVE,
+        }));
+        expect(tenant.isActive).toBe(false);
+    });
+
     it('activates an existing tenant subscription from a tenant admin upgrade webhook without provisioning users', async () => {
         configService.get.mockImplementation((key: string) => key === 'STRIPE_WEBHOOK_SECRET' ? 'whsec_test' : undefined);
         const tenant = { id: 5, name: 'Legacy Tenant', stripeCustomerId: null };
@@ -731,9 +1083,9 @@ describe('BillingService', () => {
         }));
     });
 
-    it('activates one-time tenant admin upgrades without storing a Stripe subscription ID', async () => {
+    it('activates one-time tenant admin upgrades without storing a Stripe subscription ID or reactivating the tenant', async () => {
         configService.get.mockImplementation((key: string) => key === 'STRIPE_WEBHOOK_SECRET' ? 'whsec_test' : undefined);
-        const tenant = { id: 5, name: 'Legacy Tenant', stripeCustomerId: 'cus_legacy' };
+        const tenant = { id: 5, name: 'Legacy Tenant', isActive: false, stripeCustomerId: 'cus_legacy' };
         const plan = {
             id: 9,
             name: 'Launch',
@@ -790,6 +1142,7 @@ describe('BillingService', () => {
             stripeSubscriptionId: null,
         }));
         expect(tenantRepo.save).not.toHaveBeenCalled();
+        expect(tenant.isActive).toBe(false);
         expect(userRepo.save).not.toHaveBeenCalled();
     });
 

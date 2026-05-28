@@ -54,12 +54,20 @@ export class SubscriptionsController {
     }
 
     @Post('checkout-session')
+    @AllowSuspendedTenant()
     @Roles(UserRole.ADMIN)
     createTenantCheckoutSession(
         @CurrentUser() user: RequestUser,
         @Body() dto: CreateTenantCheckoutSessionDto,
     ) {
         return this.billingService.createTenantAdminCheckoutSession(user, dto);
+    }
+
+    @Post('sync-checkout')
+    @AllowSuspendedTenant()
+    @Roles(UserRole.ADMIN)
+    syncCheckout(@CurrentUser() user: RequestUser) {
+        return this.billingService.syncCurrentTenantCheckout(user);
     }
 
     @Post('assign-plan')

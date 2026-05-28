@@ -57,13 +57,17 @@ export class UsersController {
     }
 
     @Patch(':id')
-    update(@Param('id', ParseIntPipe) id: number, @Body() updateUserDto: UpdateUserDto) {
-        return this.usersService.update(id, updateUserDto);
+    update(
+        @Param('id', ParseIntPipe) id: number,
+        @Body() updateUserDto: UpdateUserDto,
+        @CurrentUser() user: RequestUser,
+    ) {
+        return this.usersService.update(id, updateUserDto, user);
     }
 
     @Patch(':id/suspend')
-    suspend(@Param('id', ParseIntPipe) id: number) {
-        return this.usersService.suspend(id);
+    suspend(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: RequestUser) {
+        return this.usersService.suspend(id, user);
     }
 
     @Patch(':id/reactivate')

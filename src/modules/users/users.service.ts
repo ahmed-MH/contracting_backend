@@ -215,7 +215,7 @@ export class UsersService {
         };
     }
 
-    async update(id: number, dto: UpdateUserDto): Promise<User> {
+    async update(id: number, dto: UpdateUserDto, currentUser?: RequestUser): Promise<User> {
         const user = await this.userRepo.findOne({ where: { id }, relations: ['hotels'] });
         if (!user) {
             throw new ConflictException(`User #${id} not found`);
@@ -227,6 +227,26 @@ export class UsersService {
 
         // 2. Role change logic
         const effectiveRole = dto.role ?? user.role;
+        if (
+            currentUser?.id === id
+            && user.role === UserRole.ADMIN
+            && dto.role
+            && dto.role !== UserRole.ADMIN
+        ) {
+            const tenantId = user.tenantId ?? currentUser.tenantId;
+            const activeAdminCount = await this.userRepo.count({
+                where: {
+                    tenantId: tenantId === null ? IsNull() : tenantId,
+                    role: UserRole.ADMIN,
+                    isActive: true,
+                },
+            });
+
+            if (activeAdminCount <= 1) {
+                throw new BadRequestException('You must keep at least one active administrator.');
+            }
+        }
+
         if (dto.role) user.role = dto.role;
 
         // 3. Hotel assignment based on role
@@ -298,7 +318,11 @@ export class UsersService {
         return user?.hotels ?? [];
     }
 
-    async suspend(id: number): Promise<ReturnType<UsersService['sanitizeUser']>> {
+    async suspend(id: number, currentUser?: RequestUser): Promise<ReturnType<UsersService['sanitizeUser']>> {
+        if (currentUser?.id === id) {
+            throw new ForbiddenException('You cannot suspend your own account.');
+        }
+
         const user = await this.userRepo.findOne({ where: { id }, relations: ['hotels'] });
         if (!user) {
             throw new ConflictException(`User #${id} not found`);

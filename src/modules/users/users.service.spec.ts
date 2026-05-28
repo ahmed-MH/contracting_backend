@@ -19,6 +19,7 @@ describe('UsersService', () => {
         find: jest.fn(),
         create: jest.fn(),
         save: jest.fn(),
+        count: jest.fn(),
         softDelete: jest.fn(),
         recover: jest.fn(),
     };
@@ -266,6 +267,35 @@ describe('UsersService', () => {
             expect(result.hotels).toEqual([]);
         });
 
+        it('should reject self-demotion when the current user is the only active admin', async () => {
+            mockUserRepo.findOne.mockResolvedValue({ ...mockUser, id: 1, role: UserRole.ADMIN, tenantId: 1, isActive: true });
+            mockUserRepo.count.mockResolvedValue(1);
+
+            await expect(service.update(
+                1,
+                { role: UserRole.COMMERCIAL, hotelIds: [1] },
+                { id: 1, email: 'admin@test.com', role: UserRole.ADMIN, hotelIds: [], tenantId: 1 },
+            )).rejects.toThrow(BadRequestException);
+            expect(mockHotelRepo.findByIds).not.toHaveBeenCalled();
+            expect(mockUserRepo.save).not.toHaveBeenCalled();
+        });
+
+        it('should allow self-demotion when another active admin remains', async () => {
+            mockUserRepo.findOne.mockResolvedValue({ ...mockUser, id: 1, role: UserRole.ADMIN, tenantId: 1, isActive: true, hotels: [] });
+            mockUserRepo.count.mockResolvedValue(2);
+            mockHotelRepo.findByIds.mockResolvedValue([mockHotel]);
+            mockUserRepo.save.mockImplementation(async (u) => u);
+
+            const result = await service.update(
+                1,
+                { role: UserRole.COMMERCIAL, hotelIds: [1] },
+                { id: 1, email: 'admin@test.com', role: UserRole.ADMIN, hotelIds: [], tenantId: 1 },
+            );
+
+            expect(result.role).toEqual(UserRole.COMMERCIAL);
+            expect(result.hotels).toEqual([mockHotel]);
+        });
+
         it('should throw BadRequestException if COMMERCIAL updated with 0 hotels', async () => {
             mockUserRepo.findOne.mockResolvedValue({ ...mockUser, role: UserRole.COMMERCIAL });
             await expect(service.update(1, { hotelIds: [] })).rejects.toThrow(BadRequestException);
@@ -370,6 +400,18 @@ describe('UsersService', () => {
 
             expect(result.isActive).toBe(false);
             expect(result.accountStatus).toBe('SUSPENDED');
+        });
+
+        it('should reject attempts to suspend the current user', async () => {
+            await expect(service.suspend(1, {
+                id: 1,
+                email: 'admin@test.com',
+                role: UserRole.ADMIN,
+                hotelIds: [],
+                tenantId: 1,
+            })).rejects.toThrow(ForbiddenException);
+            expect(mockUserRepo.findOne).not.toHaveBeenCalled();
+            expect(mockUserRepo.save).not.toHaveBeenCalled();
         });
     });
 

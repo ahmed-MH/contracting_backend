@@ -1,77 +1,61 @@
-# Local SQL Server Express Setup
+# Local SQL Server Setup
 
-Use this setup when you want to run the project locally without Docker.
+Use this setup when you want to run Pricify locally without Docker.
 
-## 1. Install SQL Server Express
+## 1. Install SQL Server
 
-Install:
+Install SQL Server Express or Developer Edition and SQL Server Management Studio. Enable mixed authentication if the installer offers it.
 
-- SQL Server Express
-- SQL Server Management Studio (SSMS)
+## 2. Enable TCP Connections
 
-During installation, enable mixed authentication mode if the installer offers it.
+Open SQL Server Configuration Manager:
 
-## 2. Enable local TCP connections
+1. Go to `SQL Server Network Configuration > Protocols for SQLEXPRESS`.
+2. Enable `TCP/IP`.
+3. Restart `SQL Server (SQLEXPRESS)`.
 
-Open `SQL Server Configuration Manager` and:
+For a fixed port, set TCP port `1433` in the TCP/IP properties and restart SQL Server again.
 
-1. Go to `SQL Server Network Configuration > Protocols for SQLEXPRESS`
-2. Enable `TCP/IP`
-3. Restart `SQL Server (SQLEXPRESS)`
+## 3. Create Database And Login
 
-If you prefer connecting with a fixed port instead of an instance name, set TCP port `1433` in the TCP/IP properties and restart the service again.
-
-## 3. Create the database
-
-Connect with SSMS to:
-
-- `localhost\\SQLEXPRESS`, or
-- `localhost,1433` if you configured a fixed TCP port
-
-Run:
+Use a strong password of your own:
 
 ```sql
 CREATE DATABASE pricify_db;
 GO
-```
 
-## 4. Create an application login
-
-Run:
-
-```sql
 USE master;
 GO
-CREATE LOGIN pricify WITH PASSWORD = 'pricify2026';
+CREATE LOGIN pricify_app_user WITH PASSWORD = '<use-a-strong-local-password>';
 GO
 
 USE pricify_db;
 GO
-CREATE USER pricify FOR LOGIN pricify;
+CREATE USER pricify_app_user FOR LOGIN pricify_app_user;
 GO
-ALTER ROLE db_owner ADD MEMBER pricify;
+ALTER ROLE db_owner ADD MEMBER pricify_app_user;
 GO
 ```
 
-You can replace `pricify` and the password with your preferred values, then copy the same values into the backend `.env`.
+## 4. Configure Backend Environment
 
-## 5. Backend environment
-
-Default local `.env` values now support SQL Server Express named instances:
+Copy `.env.example` to `.env` in `contracting_backend` and set:
 
 ```env
 DB_HOST=localhost
 DB_INSTANCE=SQLEXPRESS
 DB_PORT=
-DB_USERNAME=pricify
-DB_PASSWORD=pricify2026
+DB_USERNAME=pricify_app_user
+DB_PASSWORD=<use-a-strong-local-password>
 DB_DATABASE=pricify_db
-DB_SYNCHRONIZE=true
+DB_SYNCHRONIZE=false
 DB_ENCRYPT=false
 DB_TRUST_SERVER_CERTIFICATE=true
+JWT_SECRET=<use-a-long-random-secret>
+FRONTEND_URL=http://localhost:5173
 ```
 
-If you configured SQL Server Express to use a fixed port instead, use:
+If you configured SQL Server to use a fixed port, use:
 
 ```env
 DB_HOST=localhost
@@ -79,20 +63,31 @@ DB_INSTANCE=
 DB_PORT=1433
 ```
 
-## 6. Run the project locally
+## 5. Apply Migrations
+
+Fresh and upgraded databases should be migration-managed:
+
+```powershell
+cd contracting_backend
+pnpm install
+pnpm run db:migrate
+```
+
+For first-run administrator creation, temporarily set `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD` in `.env`, start the backend once, then clear those values after the admin exists.
+
+## 6. Run Locally
 
 Backend:
 
 ```powershell
-cd C:\Users\ahmed mhenni\Desktop\mariott\contracting_backend
-pnpm install
+cd contracting_backend
 pnpm run start:dev
 ```
 
 Frontend:
 
 ```powershell
-cd C:\Users\ahmed mhenni\Desktop\mariott\contracting_frontend
+cd contracting_frontend
 pnpm install
 pnpm run dev
 ```
@@ -100,21 +95,3 @@ pnpm run dev
 Frontend URL: `http://localhost:5173`
 
 Backend URL: `http://localhost:3000/api`
-
-## 7. Optional database reset and seed
-
-After the backend can connect successfully, you can initialize the schema and seed data with:
-
-```powershell
-cd C:\Users\ahmed mhenni\Desktop\mariott\contracting_backend
-pnpm run db:reset
-```
-
-## 8. What changed in code
-
-The backend now supports both connection styles:
-
-- named instance via `DB_INSTANCE=SQLEXPRESS`
-- fixed port via `DB_PORT=1433`
-
-Docker can still keep using host plus port, while local SQL Server Express can use the named instance path.

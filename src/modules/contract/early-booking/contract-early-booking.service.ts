@@ -224,7 +224,7 @@ export class ContractEarlyBookingService {
                     });
                 }).filter(j => j !== null);
                 if (junctions.length > 0) {
-                    await this.ebPeriodRepo.save(junctions as ContractEarlyBookingPeriod[]);
+                    await this.ebPeriodRepo.save(junctions);
                 }
             }
         }

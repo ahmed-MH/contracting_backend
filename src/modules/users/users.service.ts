@@ -1,6 +1,6 @@
 import { Injectable, ConflictException, BadRequestException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, In } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuditLogCategory } from '../../common/audit/audit.types';
@@ -51,7 +51,7 @@ export class UsersService {
     }
 
     async findAdmin(): Promise<User | null> {
-        return this.userRepo.findOne({ where: { role: In([UserRole.ADMIN, UserRole.SUPERVISOR]) } });
+        return this.userRepo.findOne({ where: { role: UserRole.ADMIN } });
     }
 
     async createInvitedUser(data: {
@@ -131,9 +131,7 @@ export class UsersService {
     async findAll(currentUser: RequestUser): Promise<ReturnType<UsersService['sanitizeUser']>[]> {
         let users: User[] = [];
 
-        if (currentUser.role === UserRole.SUPERVISOR) {
-            users = await this.userRepo.find({ relations: ['hotels'], withDeleted: true });
-        } else if (currentUser.role === UserRole.ADMIN) {
+        if (currentUser.role === UserRole.ADMIN) {
             users = await this.userRepo.find({
                 where: { tenantId: currentUser.tenantId ?? IsNull() },
                 relations: ['hotels'],
@@ -181,10 +179,6 @@ export class UsersService {
         const invitedUser = await this.userRepo.findOne({ where: { id: userId }, relations: ['hotels'] });
         if (!invitedUser || invitedUser.tenantId !== currentUser.tenantId) {
             throw new NotFoundException(`Pending invite #${userId} not found`);
-        }
-
-        if (invitedUser.role === UserRole.SUPERVISOR) {
-            throw new ForbiddenException('Supervisor users cannot be removed through tenant invite management.');
         }
 
         if (invitedUser.isActive || !invitedUser.invitationToken || invitedUser.invitationCanceledAt) {

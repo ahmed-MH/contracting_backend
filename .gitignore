@@ -9,6 +9,8 @@ node_modules/
 # ==============================
 dist/
 dist-tsc/
+build/
+.cache/
 
 # ==============================
 # 3. SECURITY & CREDENTIALS
@@ -47,7 +49,11 @@ Desktop.ini
 # ==============================
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
 .idea/
+*.code-workspace
 *.swp
 *.swo
 *~
@@ -57,11 +63,16 @@ Desktop.ini
 # ==============================
 coverage/
 .nyc_output/
+test-results/
+playwright-report/
+cypress/screenshots/
+cypress/videos/
 
 # ==============================
 # 8. MISC (TypeScript / NestJS)
 # ==============================
 *.tsbuildinfo
+.eslintcache
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .gemini/
 tmp/
@@ -69,3 +80,11 @@ temp/
 sqlite/*.sqlite
 sqlite/*.sqlite-journal
 uploads/
+storage/
+generated/
+*.bak
+*.dump
+*.sql.gz
+*.old
+*.backup
+*.copy

@@ -217,7 +217,7 @@ export class ContractMonoparentalRuleService {
                     });
                 }).filter(j => j !== null);
                 if (junctions.length > 0) {
-                    await this.rulePeriodRepo.save(junctions as ContractMonoparentalRulePeriod[]);
+                    await this.rulePeriodRepo.save(junctions);
                 }
             }
         }

@@ -6,7 +6,6 @@ import { Hotel } from '../hotel/entities/hotel.entity';
 import { UserRole } from '../../common/constants/enums';
 import { AuditService } from '../../common/audit/audit.service';
 import { ConflictException, BadRequestException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { In } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 
 jest.mock('bcrypt');
@@ -102,7 +101,7 @@ describe('UsersService', () => {
             mockUserRepo.findOne.mockResolvedValue(mockUser);
             const result = await service.findAdmin();
             expect(result).toEqual(mockUser);
-            expect(mockUserRepo.findOne).toHaveBeenCalledWith({ where: { role: In([UserRole.ADMIN, UserRole.SUPERVISOR]) } });
+            expect(mockUserRepo.findOne).toHaveBeenCalledWith({ where: { role: UserRole.ADMIN } });
         });
     });
 
@@ -175,10 +174,10 @@ describe('UsersService', () => {
     describe('findAll', () => {
         it('should return all users without passwords', async () => {
             mockUserRepo.find.mockResolvedValue([mockUser]);
-            const result = await service.findAll({ id: 1, role: UserRole.SUPERVISOR, tenantId: null });
+            const result = await service.findAll({ id: 1, role: UserRole.ADMIN, tenantId: 1 });
             expect(result[0]).not.toHaveProperty('password');
             expect(result[0].email).toEqual('test@test.com');
-            expect(mockUserRepo.find).toHaveBeenCalledWith({ relations: ['hotels'], withDeleted: true });
+            expect(mockUserRepo.find).toHaveBeenCalledWith({ where: { tenantId: 1 }, relations: ['hotels'], withDeleted: true });
         });
 
         it('should hide canceled pending invites from tenant admins', async () => {
@@ -236,11 +235,6 @@ describe('UsersService', () => {
                 .toThrow(ForbiddenException);
         });
 
-        it('should reject supervisor users through tenant invite removal', async () => {
-            mockUserRepo.findOne.mockResolvedValue({ ...mockUser, tenantId: 1, role: UserRole.SUPERVISOR, isActive: false, invitationToken: 'token' });
-
-            await expect(service.cancelPendingInvite(1, adminUser)).rejects.toThrow(ForbiddenException);
-        });
     });
 
     describe('update', () => {

@@ -4,6 +4,8 @@ import { TemplateCancellationService } from './template-cancellation.service';
 import { TemplateCancellationRule } from './entities/template-cancellation-rule.entity';
 import { NotFoundException } from '@nestjs/common';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
+import { AuditService } from '../../../common/audit/audit.service';
+import { createAuditServiceMock } from '../../../test-utils/audit-service.mock';
 
 describe('TemplateCancellationService - Tests Unitaires 🚫', () => {
     let service: TemplateCancellationService;
@@ -32,6 +34,7 @@ describe('TemplateCancellationService - Tests Unitaires 🚫', () => {
             providers: [
                 TemplateCancellationService,
                 { provide: getRepositoryToken(TemplateCancellationRule), useValue: mockRepo },
+                { provide: AuditService, useValue: createAuditServiceMock() },
             ],
         }).compile();
 

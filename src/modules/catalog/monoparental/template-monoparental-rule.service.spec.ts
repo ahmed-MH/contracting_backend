@@ -5,6 +5,8 @@ import { TemplateMonoparentalRule } from './entities/template-monoparental-rule.
 import { Hotel } from '../../hotel/entities/hotel.entity';
 import { NotFoundException } from '@nestjs/common';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
+import { AuditService } from '../../../common/audit/audit.service';
+import { createAuditServiceMock } from '../../../test-utils/audit-service.mock';
 
 describe('TemplateMonoparentalRuleService - Tests Unitaires 👨‍👦', () => {
     let service: TemplateMonoparentalRuleService;
@@ -38,6 +40,7 @@ describe('TemplateMonoparentalRuleService - Tests Unitaires 👨‍👦', () => 
                 TemplateMonoparentalRuleService,
                 { provide: getRepositoryToken(TemplateMonoparentalRule), useValue: mockRepo },
                 { provide: getRepositoryToken(Hotel), useValue: mockHotelRepo },
+                { provide: AuditService, useValue: createAuditServiceMock() },
             ],
         }).compile();
 

@@ -1,7 +1,6 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '../constants/enums';
-import { SUPERVISOR_RESTRICTED_ROUTE_PREFIXES } from '../constants/supervisor-restricted-routes';
 import { UsersService } from '../../modules/users/users.service';
 import { HotelService } from '../../modules/hotel/hotel.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
@@ -18,11 +17,6 @@ export class HotelAccessGuard implements CanActivate {
         private readonly hotelService: HotelService,
         private readonly reflector: Reflector,
     ) { }
-
-    private isSupervisorRestrictedRoute(request: AuthenticatedRequest): boolean {
-        const pathname = (request.originalUrl ?? request.url ?? '').split('?')[0];
-        return SUPERVISOR_RESTRICTED_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
-    }
 
     async canActivate(context: ExecutionContext): Promise<boolean> {
         // Skip for @Public() routes
@@ -41,15 +35,6 @@ export class HotelAccessGuard implements CanActivate {
             return false;
         }
 
-        if (jwtUser.role === UserRole.SUPERVISOR && this.isSupervisorRestrictedRoute(request)) {
-            throw new ForbiddenException('Supervisors cannot access tenant operational resources.');
-        }
-
-        // Rule A: Supervisors bypass tenant suspension and hotel checks after resource-boundary enforcement.
-        if (jwtUser.role === UserRole.SUPERVISOR) {
-            return true;
-        }
-
         const allowSuspendedTenant = this.reflector.getAllAndOverride<boolean>(ALLOW_SUSPENDED_TENANT_KEY, [
             context.getHandler(),
             context.getClass(),
@@ -64,7 +49,7 @@ export class HotelAccessGuard implements CanActivate {
 
         this.enforceActiveTenant(dbUser, allowSuspendedTenant);
 
-        // Skip for @SkipHotelCheck() routes after enforcing supervisor boundaries and tenant status
+        // Skip for @SkipHotelCheck() routes after enforcing tenant status
         const skipHotelCheck = this.reflector.getAllAndOverride<boolean>(SKIP_HOTEL_CHECK_KEY, [
             context.getHandler(),
             context.getClass(),
@@ -73,7 +58,7 @@ export class HotelAccessGuard implements CanActivate {
             return true;
         }
 
-        // For non-supervisor users, x-hotel-id is MANDATORY
+        // For hotel-scoped routes, x-hotel-id is MANDATORY
         const hotelIdHeader = request.headers['x-hotel-id'] as string | undefined;
         if (!hotelIdHeader) {
             throw new ForbiddenException('Missing x-hotel-id header. Admins and Commercials must specify a hotel context.');

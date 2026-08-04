@@ -20,7 +20,6 @@ describe('CurrencyConversionService', () => {
         rate: partial.rate ?? 1,
         effectiveDate: partial.effectiveDate,
         validFrom: partial.validFrom,
-        source: partial.source,
     } as ExchangeRate);
 
     beforeEach(() => {

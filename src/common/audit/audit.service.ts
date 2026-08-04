@@ -29,7 +29,6 @@ const SENSITIVE_METADATA_KEYWORDS = [
     'card',
     'cvv',
     'cvc',
-    'stripe_secret',
 ];
 
 @Injectable()
@@ -110,16 +109,8 @@ export class AuditService {
         return this.log({ ...input, category: AuditLogCategory.AUTH });
     }
 
-    logBilling(input: Omit<CreateAuditLogInput, 'category'>): Promise<void> {
-        return this.log({ ...input, category: AuditLogCategory.BILLING });
-    }
-
     logTenant(input: Omit<CreateAuditLogInput, 'category'>): Promise<void> {
         return this.log({ ...input, category: AuditLogCategory.TENANT });
-    }
-
-    logWebhook(input: Omit<CreateAuditLogInput, 'category'>): Promise<void> {
-        return this.log({ ...input, category: AuditLogCategory.WEBHOOK });
     }
 
     async list(query: ListAuditLogsQuery = {}): Promise<PaginatedAuditLogs> {

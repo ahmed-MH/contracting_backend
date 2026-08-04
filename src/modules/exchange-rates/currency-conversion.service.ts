@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Hotel } from '../hotel/entities/hotel.entity';
-import { ExchangeRate, ExchangeRateSource } from './entities/exchange-rate.entity';
+import { ExchangeRate } from './entities/exchange-rate.entity';
 
 export type CurrencyConversionType = 'identity' | 'direct' | 'inverse' | 'cross' | 'unresolved';
 
@@ -13,7 +13,6 @@ export interface CurrencyConversionRatePair {
     toCurrency: string;
     rate: number;
     effectiveDate: string;
-    source?: ExchangeRateSource;
 }
 
 export interface CurrencyRateResolution {
@@ -242,7 +241,6 @@ export class CurrencyConversionService {
             toCurrency,
             rate: value,
             effectiveDate: this.isoDate(this.rateEffectiveDate(rate)),
-            source: rate.source,
         };
     }
 

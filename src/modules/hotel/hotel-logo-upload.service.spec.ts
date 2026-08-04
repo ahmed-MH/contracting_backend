@@ -6,7 +6,10 @@ import { mkdir, writeFile } from 'fs/promises';
 import { randomUUID } from 'crypto';
 import { HotelService } from './hotel.service';
 import { Hotel } from './entities/hotel.entity';
+import { HotelBankAccount } from './entities/hotel-bank-account.entity';
 import { UserRole } from '../../common/constants/enums';
+import { AuditService } from '../../common/audit/audit.service';
+import { createAuditServiceMock } from '../../test-utils/audit-service.mock';
 
 jest.mock('fs/promises', () => ({
     mkdir: jest.fn(),
@@ -28,6 +31,12 @@ describe('HotelService logo upload hardening', () => {
         softDelete: jest.Mock;
         restore: jest.Mock;
     };
+    let hotelBankAccountRepo: {
+        find: jest.Mock;
+        create: jest.Mock;
+        update: jest.Mock;
+        save: jest.Mock;
+    };
 
     beforeEach(async () => {
         hotelRepo = {
@@ -39,6 +48,12 @@ describe('HotelService logo upload hardening', () => {
             softDelete: jest.fn(),
             restore: jest.fn(),
         };
+        hotelBankAccountRepo = {
+            find: jest.fn(),
+            create: jest.fn((value) => value),
+            update: jest.fn(),
+            save: jest.fn(),
+        };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -47,6 +62,11 @@ describe('HotelService logo upload hardening', () => {
                     provide: getRepositoryToken(Hotel),
                     useValue: hotelRepo,
                 },
+                {
+                    provide: getRepositoryToken(HotelBankAccount),
+                    useValue: hotelBankAccountRepo,
+                },
+                { provide: AuditService, useValue: createAuditServiceMock() },
             ],
         }).compile();
 
@@ -76,6 +96,7 @@ describe('HotelService logo upload hardening', () => {
 
         expect(hotelRepo.findOne).toHaveBeenCalledWith({
             where: { id: 12, tenantId: 9 },
+            relations: ['bankAccounts'],
         });
         expect(mkdir).toHaveBeenCalled();
         expect(writeFile).toHaveBeenCalled();
@@ -117,6 +138,7 @@ describe('HotelService logo upload hardening', () => {
 
         expect(hotelRepo.findOne).toHaveBeenCalledWith({
             where: { id: 18, tenantId: 3 },
+            relations: ['bankAccounts'],
         });
         expect(writeFile).not.toHaveBeenCalled();
     });

@@ -5,9 +5,12 @@
     OnModuleInit,
     Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import { UserRole } from '../../common/constants/enums';
@@ -16,10 +19,10 @@ import { InviteUserDto } from './dto/invite-user.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-import { TenantUsageService } from '../subscriptions/tenant-usage.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AuditLogCategory, AuditLogSeverity } from '../../common/audit/audit.types';
 import { RequestUser } from '../../common/interfaces/request.interface';
+import { Tenant } from '../tenants/entities/tenant.entity';
 
 const SALT_ROUNDS = 10;
 const INVALID_INVITE_MESSAGE = 'This invitation is no longer valid. Please contact your organization administrator.';
@@ -33,28 +36,42 @@ export class AuthService implements OnModuleInit {
         private readonly usersService: UsersService,
         private readonly jwtService: JwtService,
         private readonly mailService: MailService,
-        private readonly tenantUsageService: TenantUsageService,
         private readonly auditService: AuditService,
+        private readonly configService: ConfigService,
+        @InjectRepository(Tenant)
+        private readonly tenantRepo: Repository<Tenant>,
     ) { }
 
     // â”€â”€â”€ Seed Admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async onModuleInit(): Promise<void> {
         const existing = await this.usersService.findAdmin();
         if (existing) {
-            this.logger.log(`Supervisor already exists: ${existing.email}`);
+            this.logger.log(`Administrator already exists: ${existing.email}`);
             return;
         }
 
-        const hashedPassword = await bcrypt.hash('admin123', SALT_ROUNDS);
+        const email = this.configService.get<string>('INITIAL_ADMIN_EMAIL')?.trim();
+        const password = this.configService.get<string>('INITIAL_ADMIN_PASSWORD');
+        if (!email || !password) {
+            this.logger.warn('No seed administrator was created. Set INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD for first-run initialization.');
+            return;
+        }
+
+        const tenant = await this.tenantRepo.save(this.tenantRepo.create({
+            name: this.configService.get<string>('INTERNAL_TENANT_NAME')?.trim() || 'Internal Pricify',
+            isActive: true,
+        }));
+        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
         const admin = await this.usersService.createSeedAdmin({
-            email: 'admin@marriott.com',
-            firstName: 'Super',
-            lastName: 'Admin',
+            email,
+            firstName: this.configService.get<string>('INITIAL_ADMIN_FIRST_NAME')?.trim() || 'Internal',
+            lastName: this.configService.get<string>('INITIAL_ADMIN_LAST_NAME')?.trim() || 'Admin',
             password: hashedPassword,
-            role: UserRole.SUPERVISOR,
+            role: UserRole.ADMIN,
+            tenantId: tenant.id,
         });
 
-        this.logger.log(`ðŸ”‘ Seed supervisor created: ${admin.email} / admin123`);
+        this.logger.log(`Seed administrator created: ${admin.email}`);
     }
 
     // â”€â”€â”€ Login â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -153,18 +170,12 @@ export class AuthService implements OnModuleInit {
             throw new BadRequestException('No active tenant is associated with this user.');
         }
 
-        if ((dto.role as UserRole) === UserRole.SUPERVISOR) {
-            throw new BadRequestException('This role cannot be invited to a tenant.');
-        }
-
         // ADMIN = global, no hotel required. COMMERCIAL/AGENT = must have at least one hotel.
         if (dto.role === UserRole.COMMERCIAL || dto.role === UserRole.AGENT) {
             if (!dto.hotelIds || dto.hotelIds.length === 0) {
                 throw new BadRequestException('This role must be assigned to at least one hotel.');
             }
         }
-
-        await this.tenantUsageService.assertCanInviteUser(currentUser.tenantId);
 
         const token = randomUUID();
 

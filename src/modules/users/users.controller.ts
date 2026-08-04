@@ -21,7 +21,7 @@ export class UsersController {
 
     @Get('me')
     @AllowSuspendedTenant()
-    @Roles(UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.COMMERCIAL, UserRole.AGENT)
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL, UserRole.AGENT)
     getMe(@Req() req: AuthenticatedRequest) {
         const user = req.user as RequestUser;
         return this.usersService.findCurrentProfile(user.id);

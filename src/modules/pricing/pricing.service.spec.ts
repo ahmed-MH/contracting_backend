@@ -9,6 +9,9 @@ import { ContractRoom } from '../contract/core/entities/contract-room.entity';
 import { Arrangement } from '../hotel/entities/arrangement.entity';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { In } from 'typeorm';
+import { Contract } from '../contract/core/entities/contract.entity';
+import { AuditService } from '../../common/audit/audit.service';
+import { createAuditServiceMock } from '../../test-utils/audit-service.mock';
 
 describe('PricingService', () => {
     let service: PricingService;
@@ -18,6 +21,9 @@ describe('PricingService', () => {
         create: jest.fn(),
         save: jest.fn(),
         find: jest.fn(),
+    };
+    const mockContractRepo = {
+        save: jest.fn(),
     };
     const mockPriceRepo = {
         findOne: jest.fn(),
@@ -42,21 +48,24 @@ describe('PricingService', () => {
             providers: [
                 PricingService,
                 { provide: getRepositoryToken(ContractLine), useValue: mockLineRepo },
+                { provide: getRepositoryToken(Contract), useValue: mockContractRepo },
                 { provide: getRepositoryToken(Price), useValue: mockPriceRepo },
                 { provide: getRepositoryToken(Promotion), useValue: mockPromotionRepo },
                 { provide: getRepositoryToken(Period), useValue: mockPeriodRepo },
                 { provide: getRepositoryToken(ContractRoom), useValue: mockContractRoomRepo },
                 { provide: getRepositoryToken(Arrangement), useValue: mockArrangementRepo },
+                { provide: AuditService, useValue: createAuditServiceMock() },
             ],
         }).compile();
 
         service = module.get<PricingService>(PricingService);
         jest.clearAllMocks();
+        mockContractRepo.save.mockResolvedValue(undefined);
     });
 
     describe('initContractLine', () => {
         const dto = { contractId: 1, periodId: 1, contractRoomId: 1 };
-        const mockPeriod = { id: 1, contract: { id: 1 } };
+        const mockPeriod = { id: 1, contract: { id: 1, hotelId: 1 } };
         const mockContractRoom = { id: 1, contract: { id: 1 } };
 
         it('should return existing line if already created', async () => {
@@ -66,7 +75,10 @@ describe('PricingService', () => {
             const result = await service.initContractLine(1, dto);
             expect(result).toEqual(existingLine);
             expect(mockLineRepo.findOne).toHaveBeenCalledWith({
-                where: { period: { id: dto.periodId }, contractRoom: { id: dto.contractRoomId } },
+                where: {
+                    period: { id: dto.periodId, contract: { hotelId: 1 } },
+                    contractRoom: { id: dto.contractRoomId },
+                },
                 relations: ['period', 'contractRoom'],
             });
         });
@@ -113,7 +125,7 @@ describe('PricingService', () => {
 
     describe('setPrice', () => {
         const dto = { contractLineId: 1, arrangementId: 1, amount: 150 };
-        const mockLine = { id: 1 };
+        const mockLine = { id: 1, period: { contract: { id: 1, hotelId: 1 } } };
         const mockArrangement = { id: 1 };
 
         it('should update existing price', async () => {
@@ -159,7 +171,7 @@ describe('PricingService', () => {
         const dto = { contractLineId: 1, promotionIds: [1, 2] };
 
         it('should replace promotions on a line', async () => {
-            const mockLine = { id: 1, promotions: [] };
+            const mockLine = { id: 1, promotions: [], period: { contract: { id: 1, hotelId: 1 } } };
             const mockPromos = [{ id: 1 }, { id: 2 }];
             
             mockLineRepo.findOne.mockResolvedValue(mockLine);
@@ -177,7 +189,7 @@ describe('PricingService', () => {
         });
 
         it('should throw NotFoundException if not all promotions found', async () => {
-            const mockLine = { id: 1, promotions: [] };
+            const mockLine = { id: 1, promotions: [], period: { contract: { id: 1, hotelId: 1 } } };
             mockLineRepo.findOne.mockResolvedValue(mockLine);
             mockPromotionRepo.find.mockResolvedValue([{ id: 1 }]); // missing 2
 
@@ -187,7 +199,7 @@ describe('PricingService', () => {
 
     describe('setAllotment', () => {
         it('should update line allotment', async () => {
-            const mockLine = { id: 1, allotment: 0 };
+            const mockLine = { id: 1, allotment: 0, period: { contract: { id: 1, hotelId: 1 } } };
             mockLineRepo.findOne.mockResolvedValue(mockLine);
             mockLineRepo.save.mockResolvedValue({ ...mockLine, allotment: 10 });
 
@@ -210,7 +222,7 @@ describe('PricingService', () => {
             const result = await service.getMatrix(1, 1);
             expect(result).toEqual(mockLines);
             expect(mockLineRepo.find).toHaveBeenCalledWith(expect.objectContaining({
-                where: { period: { contract: { id: 1 } } },
+                where: { period: { contract: { id: 1, hotelId: 1 } } },
                 relations: expect.arrayContaining(['period', 'contractRoom', 'prices']),
             }));
         });

@@ -124,16 +124,6 @@ describe('HotelAccessGuard', () => {
         }))).rejects.toThrow(ForbiddenException);
     });
 
-    it('does not block SUPERVISOR users with tenant suspension checks', async () => {
-        await expect(guard.canActivate(buildContext({
-            user: { id: 9, role: UserRole.SUPERVISOR, tenantId: null },
-            headers: {},
-            originalUrl: '/api/system-logs',
-        }))).resolves.toBe(true);
-
-        expect(usersService.findById).not.toHaveBeenCalled();
-    });
-
     it('does not require a user or tenant lookup for public routes', async () => {
         metadata.isPublic = true;
 

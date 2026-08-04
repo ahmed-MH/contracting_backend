@@ -19,12 +19,7 @@ export interface AuditableShape {
 export enum AuditLogCategory {
     AUTH = 'AUTH',
     TENANT = 'TENANT',
-    PLAN = 'PLAN',
-    SUBSCRIPTION = 'SUBSCRIPTION',
-    BILLING = 'BILLING',
-    WEBHOOK = 'WEBHOOK',
     INVITE = 'INVITE',
-    ENTITLEMENT = 'ENTITLEMENT',
     SYSTEM = 'SYSTEM',
 }
 

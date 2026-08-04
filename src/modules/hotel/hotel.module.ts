@@ -10,12 +10,10 @@ import { RoomTypeController } from './room-type.controller';
 import { RoomTypeService } from './room-type.service';
 import { ArrangementController } from './arrangement.controller';
 import { ArrangementService } from './arrangement.service';
-import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([Hotel, RoomType, Arrangement, HotelBankAccount]),
-        SubscriptionsModule,
     ],
     controllers: [
         HotelController,

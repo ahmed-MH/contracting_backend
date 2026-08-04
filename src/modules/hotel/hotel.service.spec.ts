@@ -7,7 +7,6 @@ import { HotelBankAccount } from './entities/hotel-bank-account.entity';
 import { AuditService } from '../../common/audit/audit.service';
 import { UserRole } from '../../common/constants/enums';
 import { CreateHotelDto } from './dto/create-hotel.dto';
-import { TenantUsageService } from '../subscriptions/tenant-usage.service';
 
 describe('HotelService', () => {
     let service: HotelService;
@@ -36,10 +35,6 @@ describe('HotelService', () => {
         applyUpdateAudit: jest.fn((entity) => entity),
     };
 
-    const mockTenantUsageService = {
-        assertCanCreateHotel: jest.fn(),
-    };
-
     const baseHotel = {
         id: 1,
         name: 'The Grand Budapest Hotel',
@@ -58,7 +53,6 @@ describe('HotelService', () => {
                 { provide: getRepositoryToken(Hotel), useValue: mockHotelRepo },
                 { provide: getRepositoryToken(HotelBankAccount), useValue: mockBankAccountRepo },
                 { provide: AuditService, useValue: mockAuditService },
-                { provide: TenantUsageService, useValue: mockTenantUsageService },
             ],
         }).compile();
 
@@ -69,7 +63,6 @@ describe('HotelService', () => {
         mockAuditService.resolveActor.mockResolvedValue(actor);
         mockAuditService.applyCreateAudit.mockImplementation((entity) => entity);
         mockAuditService.applyUpdateAudit.mockImplementation((entity) => entity);
-        mockTenantUsageService.assertCanCreateHotel.mockResolvedValue(undefined);
     });
 
     it('creates a hotel and stores multiple bank accounts with one principal', async () => {
@@ -108,7 +101,6 @@ describe('HotelService', () => {
 
         const result = await service.createHotel(createDto, { id: 1, role: UserRole.ADMIN, tenantId: 1 });
 
-        expect(mockTenantUsageService.assertCanCreateHotel).toHaveBeenCalledWith(1);
         expect(mockHotelRepo.create).toHaveBeenCalledWith(expect.objectContaining({
             name: baseHotel.name,
             tenantId: 1,
@@ -178,7 +170,6 @@ describe('HotelService', () => {
 
         await service.createHotel(createDto, { id: 1, role: UserRole.ADMIN, tenantId: 1 });
 
-        expect(mockTenantUsageService.assertCanCreateHotel).toHaveBeenCalledWith(1);
         expect(mockBankAccountRepo.save).toHaveBeenCalledWith(expect.arrayContaining([
             expect.objectContaining({
                 label: 'Principal account',
@@ -189,22 +180,6 @@ describe('HotelService', () => {
                 isDefault: true,
             }),
         ]));
-    });
-
-    it('blocks hotel creation when the tenant plan hotel limit is reached', async () => {
-        mockTenantUsageService.assertCanCreateHotel.mockRejectedValue(new Error('Hotel limit reached for current plan.'));
-
-        await expect(service.createHotel({
-            name: baseHotel.name,
-            phone: baseHotel.phone,
-            address: baseHotel.address,
-            legalRepresentative: baseHotel.legalRepresentative,
-            defaultCurrency: 'TND',
-        }, { id: 1, role: UserRole.ADMIN, tenantId: 1 }))
-            .rejects
-            .toThrow('Hotel limit reached for current plan.');
-
-        expect(mockHotelRepo.save).not.toHaveBeenCalled();
     });
 
     it('returns hotels scoped for a commercial user with bank accounts loaded', async () => {

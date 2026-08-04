@@ -1,7 +1,6 @@
 import { Transform } from 'class-transformer';
-import { IsDateString, IsEnum, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
+import { IsDateString, IsNumber, IsString, Length, Min } from 'class-validator';
 import { PartialType } from '@nestjs/mapped-types';
-import { ExchangeRateSource } from '../entities/exchange-rate.entity';
 
 const upperCurrency = ({ value }: { value: unknown }) => String(value ?? '').trim().toUpperCase();
 
@@ -22,11 +21,6 @@ export class CreateExchangeRateDto {
 
     @IsDateString()
     effectiveDate: string;
-
-    @IsOptional()
-    @IsEnum(ExchangeRateSource)
-    source?: ExchangeRateSource;
-
 }
 
 export class UpdateExchangeRateDto extends PartialType(CreateExchangeRateDto) {}

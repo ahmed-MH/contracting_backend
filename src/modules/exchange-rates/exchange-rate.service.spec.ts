@@ -4,6 +4,8 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { ExchangeRateService } from './exchange-rate.service';
 import { ExchangeRate } from './entities/exchange-rate.entity';
 import { Hotel } from '../hotel/entities/hotel.entity';
+import { AuditService } from '../../common/audit/audit.service';
+import { UserRole } from '../../common/constants/enums';
 
 describe('ExchangeRateService', () => {
     let service: ExchangeRateService;
@@ -19,6 +21,21 @@ describe('ExchangeRateService', () => {
 
     const mockHotelRepo = {
         findOneBy: jest.fn(),
+    };
+
+    const mockAuditService = {
+        resolveActor: jest.fn().mockResolvedValue({ userId: 1, email: 'admin@example.com', role: UserRole.ADMIN, name: 'Admin User' }),
+        legacyActorLabel: jest.fn().mockReturnValue('admin@example.com'),
+        applyCreateAudit: jest.fn(),
+        applyUpdateAudit: jest.fn(),
+    };
+
+    const mockAdminUser = {
+        id: 1,
+        email: 'admin@example.com',
+        role: UserRole.ADMIN,
+        hotelIds: [1],
+        tenantId: 1,
     };
 
     const mockHotelId = 1;
@@ -40,6 +57,7 @@ describe('ExchangeRateService', () => {
                 ExchangeRateService,
                 { provide: getRepositoryToken(ExchangeRate), useValue: mockExchangeRateRepo },
                 { provide: getRepositoryToken(Hotel), useValue: mockHotelRepo },
+                { provide: AuditService, useValue: mockAuditService },
             ],
         }).compile();
 
@@ -59,12 +77,12 @@ describe('ExchangeRateService', () => {
                 toCurrency: 'tnd',
                 rate: 3.1,
                 effectiveDate: '2026-01-01',
-                source: 'manual' as any,
-            }, 'admin@example.com');
+            }, mockAdminUser);
 
             expect(mockExchangeRateRepo.create).toHaveBeenCalledWith(expect.objectContaining({
                 fromCurrency: 'EUR',
                 toCurrency: 'TND',
+                source: 'manual',
                 updatedBy: 'admin@example.com',
             }));
             expect(result).toEqual(mockRate);
@@ -123,14 +141,13 @@ describe('ExchangeRateService', () => {
             const result = await service.update(mockHotelId, mockId, {
                 rate: 3.2,
                 effectiveDate: '2026-02-01',
-                source: 'imported' as any,
-            }, 'commercial@example.com');
+            }, mockAdminUser);
 
             expect(result.rate).toEqual(3.2);
             expect(mockExchangeRateRepo.save).toHaveBeenCalledWith(expect.objectContaining({
                 effectiveDate: new Date('2026-02-01'),
-                source: 'imported',
-                updatedBy: 'commercial@example.com',
+                source: 'manual',
+                updatedBy: 'admin@example.com',
             }));
         });
 

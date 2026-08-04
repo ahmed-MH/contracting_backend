@@ -4,6 +4,8 @@ import { ArrangementService } from './arrangement.service';
 import { Arrangement } from './entities/arrangement.entity';
 import { Hotel } from './entities/hotel.entity';
 import { NotFoundException } from '@nestjs/common';
+import { AuditService } from '../../common/audit/audit.service';
+import { createAuditServiceMock } from '../../test-utils/audit-service.mock';
 
 describe('ArrangementService', () => {
     let service: ArrangementService;
@@ -31,6 +33,7 @@ describe('ArrangementService', () => {
                 ArrangementService,
                 { provide: getRepositoryToken(Arrangement), useValue: mockArrangementRepo },
                 { provide: getRepositoryToken(Hotel), useValue: mockHotelRepo },
+                { provide: AuditService, useValue: createAuditServiceMock() },
             ],
         }).compile();
 

@@ -10,8 +10,8 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
 
-  // ─── Global API prefix (/api) — excludes root health check and Stripe webhook
-  app.setGlobalPrefix('api', { exclude: ['health', 'billing/webhook'] });
+  // ─── Global API prefix (/api) — excludes root health check
+  app.setGlobalPrefix('api', { exclude: ['health'] });
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
 
   // ─── CORS : autorise le frontend (Docker ou dev local)

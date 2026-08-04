@@ -5,6 +5,8 @@ import { TemplateReduction } from './entities/template-reduction.entity';
 import { Hotel } from '../../hotel/entities/hotel.entity';
 import { NotFoundException } from '@nestjs/common';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
+import { AuditService } from '../../../common/audit/audit.service';
+import { createAuditServiceMock } from '../../../test-utils/audit-service.mock';
 
 describe('TemplateReductionService - Tests Unitaires 📉', () => {
     let service: TemplateReductionService;
@@ -38,6 +40,7 @@ describe('TemplateReductionService - Tests Unitaires 📉', () => {
                 TemplateReductionService,
                 { provide: getRepositoryToken(TemplateReduction), useValue: mockRepo },
                 { provide: getRepositoryToken(Hotel), useValue: mockHotelRepo },
+                { provide: AuditService, useValue: createAuditServiceMock() },
             ],
         }).compile();
 

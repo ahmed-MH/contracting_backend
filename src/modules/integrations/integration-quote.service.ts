@@ -24,7 +24,6 @@ import {
 } from '../simulation/dto/simulation-request.dto';
 import { SimulationContractMatcherService } from '../simulation/simulation-contract-matcher.service';
 import { SimulationService } from '../simulation/simulation.service';
-import { TenantUsageService } from '../subscriptions/tenant-usage.service';
 import { IntegrationApiKeysService } from './integration-api-keys.service';
 import { IntegrationApiUsageLogsService } from './integration-api-usage-logs.service';
 import {
@@ -90,7 +89,6 @@ export class IntegrationQuoteService {
         private readonly contractMatcher: SimulationContractMatcherService,
         private readonly simulationService: SimulationService,
         private readonly currencyConversionService: CurrencyConversionService,
-        private readonly tenantUsageService: TenantUsageService,
         @InjectRepository(Hotel)
         private readonly hotelRepo: Repository<Hotel>,
         @InjectRepository(Affiliate)
@@ -116,7 +114,6 @@ export class IntegrationQuoteService {
             context.apiKeyId = apiKey.id;
             context.apiKeyEnvironment = apiKey.environment;
             this.apiKeysService.assertIpAllowed(apiKey, ipAddress);
-            await this.assertTenantPlanAllowsApiAccess(apiUser.tenantId ?? null);
 
             const endpoint = await this.endpointsService.findByCodeForTenant(
                 RESERVATIONS_QUOTE_ENDPOINT_CODE,
@@ -190,8 +187,6 @@ export class IntegrationQuoteService {
         context.tenantId = currentUser.tenantId ?? null;
 
         try {
-            await this.assertTenantPlanAllowsApiAccess(currentUser.tenantId ?? null);
-
             const endpoint = await this.endpointsService.findByCodeForTenant(
                 RESERVATIONS_QUOTE_ENDPOINT_CODE,
                 currentUser.tenantId ?? null,
@@ -341,18 +336,6 @@ export class IntegrationQuoteService {
             requestId: dto.requestId,
             hotelId: hotel.id,
         };
-    }
-
-    private async assertTenantPlanAllowsApiAccess(tenantId: number | null): Promise<void> {
-        if (!tenantId) {
-            throw new IntegrationPublicError('API_ACCESS_DISABLED', 403, 'API access is not enabled for this tenant plan.');
-        }
-
-        try {
-            await this.tenantUsageService.assertCanUseApiAccess(tenantId);
-        } catch {
-            throw new IntegrationPublicError('API_ACCESS_DISABLED', 403, 'API access is not enabled for this tenant plan.');
-        }
     }
 
     private async buildFailureResult(

@@ -10,7 +10,6 @@ import { Hotel } from '../hotel/entities/hotel.entity';
 import { RoomType } from '../hotel/entities/room-type.entity';
 import { SimulationContractMatcherService } from '../simulation/simulation-contract-matcher.service';
 import { SimulationService } from '../simulation/simulation.service';
-import { TenantUsageService } from '../subscriptions/tenant-usage.service';
 import { IntegrationApiKeysService } from './integration-api-keys.service';
 import { IntegrationApiUsageLogsService } from './integration-api-usage-logs.service';
 import { IntegrationEndpointsService } from './integration-endpoints.service';
@@ -42,10 +41,6 @@ describe('IntegrationQuoteService', () => {
     const currencyConversionService = {
         resolveRate: jest.fn(),
     };
-    const tenantUsageService = {
-        assertCanUseApiAccess: jest.fn(),
-    };
-
     const hotelRepo = { findOne: jest.fn() };
     const affiliateRepo = { findOne: jest.fn() };
     const roomTypeRepo = { findOne: jest.fn() };
@@ -88,7 +83,6 @@ describe('IntegrationQuoteService', () => {
                 { provide: SimulationContractMatcherService, useValue: contractMatcher },
                 { provide: SimulationService, useValue: simulationService },
                 { provide: CurrencyConversionService, useValue: currencyConversionService },
-                { provide: TenantUsageService, useValue: tenantUsageService },
                 { provide: getRepositoryToken(Hotel), useValue: hotelRepo },
                 { provide: getRepositoryToken(Affiliate), useValue: affiliateRepo },
                 { provide: getRepositoryToken(RoomType), useValue: roomTypeRepo },
@@ -106,7 +100,6 @@ describe('IntegrationQuoteService', () => {
         });
         apiKeysService.assertIpAllowed.mockReturnValue(undefined);
         apiKeysService.markUsed.mockResolvedValue(undefined);
-        tenantUsageService.assertCanUseApiAccess.mockResolvedValue(undefined);
         endpointsService.findByCodeForTenant.mockResolvedValue({
             id: 3,
             code: RESERVATIONS_QUOTE_ENDPOINT_CODE,
@@ -213,21 +206,6 @@ describe('IntegrationQuoteService', () => {
             success: false,
             source: IntegrationUsageLogSource.PUBLIC_API,
             errorCode: 'ENDPOINT_DISABLED',
-        }));
-    });
-
-    it('blocks public quote execution when the tenant plan does not include API access', async () => {
-        tenantUsageService.assertCanUseApiAccess.mockRejectedValue(new Error('API access disabled'));
-
-        const result = await service.handleQuote(createRawBody(), 'pik_key.secret', '127.0.0.1');
-
-        expect(result.statusCode).toBe(403);
-        expect(result.payload).toMatchObject({ errorCode: 'API_ACCESS_DISABLED' });
-        expect(endpointsService.findByCodeForTenant).not.toHaveBeenCalled();
-        expect(usageLogsService.create).toHaveBeenCalledWith(expect.objectContaining({
-            success: false,
-            source: IntegrationUsageLogSource.PUBLIC_API,
-            errorCode: 'API_ACCESS_DISABLED',
         }));
     });
 

@@ -4,6 +4,8 @@ import { AffiliateService } from './affiliate.service';
 import { Affiliate } from './entities/affiliate.entity';
 import { NotFoundException } from '@nestjs/common';
 import { AffiliateType } from '../../common/constants/enums';
+import { AuditService } from '../../common/audit/audit.service';
+import { createAuditServiceMock } from '../../test-utils/audit-service.mock';
 
 describe('AffiliateService', () => {
     let service: AffiliateService;
@@ -27,6 +29,7 @@ describe('AffiliateService', () => {
             providers: [
                 AffiliateService,
                 { provide: getRepositoryToken(Affiliate), useValue: mockAffiliateRepo },
+                { provide: AuditService, useValue: createAuditServiceMock() },
             ],
         }).compile();
 

@@ -6,8 +6,10 @@ import { MailService } from '../mail/mail.service';
 import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { UserRole } from '../../common/constants/enums';
-import { TenantUsageService } from '../subscriptions/tenant-usage.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Tenant } from '../tenants/entities/tenant.entity';
+import { ConfigService } from '@nestjs/config';
 
 jest.mock('bcrypt');
 jest.mock('crypto', () => ({
@@ -37,14 +39,19 @@ describe('AuthService', () => {
         sendPasswordReset: jest.fn(),
     };
 
-    const mockTenantUsageService = {
-        assertCanInviteUser: jest.fn(),
+    const mockTenantRepo = {
+        create: jest.fn((data: Partial<Tenant>): Partial<Tenant> => ({ ...data })),
+        save: jest.fn(),
     };
 
     const mockAuditService = {
         log: jest.fn(),
         logAuth: jest.fn(),
         resolveActor: jest.fn().mockResolvedValue({ userId: null, email: null, role: 'SYSTEM', name: 'System' }),
+    };
+
+    const mockConfigService = {
+        get: jest.fn(),
     };
 
     const mockUser = {
@@ -65,14 +72,24 @@ describe('AuthService', () => {
                 { provide: UsersService, useValue: mockUsersService },
                 { provide: JwtService, useValue: mockJwtService },
                 { provide: MailService, useValue: mockMailService },
-                { provide: TenantUsageService, useValue: mockTenantUsageService },
                 { provide: AuditService, useValue: mockAuditService },
+                { provide: ConfigService, useValue: mockConfigService },
+                { provide: getRepositoryToken(Tenant), useValue: mockTenantRepo },
             ],
         }).compile();
 
         service = module.get<AuthService>(AuthService);
         jest.clearAllMocks();
-        mockTenantUsageService.assertCanInviteUser.mockResolvedValue(undefined);
+        const seedConfig: Record<string, string> = {
+            INITIAL_ADMIN_EMAIL: 'admin@example.test',
+            INITIAL_ADMIN_PASSWORD: 'initial-password',
+            INITIAL_ADMIN_FIRST_NAME: 'Initial',
+            INITIAL_ADMIN_LAST_NAME: 'Admin',
+            INTERNAL_TENANT_NAME: 'Internal Pricify',
+        };
+        mockConfigService.get.mockImplementation((key: string) => seedConfig[key]);
+        mockTenantRepo.create.mockImplementation((data: Partial<Tenant>): Partial<Tenant> => ({ ...data }));
+        mockTenantRepo.save.mockImplementation((tenant: Partial<Tenant>) => Promise.resolve({ id: 1, ...tenant }));
     });
 
     describe('onModuleInit', () => {
@@ -82,13 +99,34 @@ describe('AuthService', () => {
             expect(mockUsersService.createSeedAdmin).not.toHaveBeenCalled();
         });
 
+        it('should skip seed admin creation if first-run credentials are not configured', async () => {
+            mockUsersService.findAdmin.mockResolvedValue(null);
+            mockConfigService.get.mockReturnValue(undefined);
+
+            await service.onModuleInit();
+
+            expect(mockTenantRepo.save).not.toHaveBeenCalled();
+            expect(mockUsersService.createSeedAdmin).not.toHaveBeenCalled();
+        });
+
         it('should create seed admin if none exists', async () => {
             mockUsersService.findAdmin.mockResolvedValue(null);
             (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-admin-password');
-            mockUsersService.createSeedAdmin.mockResolvedValue({ email: 'admin@marriott.com' });
+            mockUsersService.createSeedAdmin.mockResolvedValue({ email: 'admin@example.test' });
 
             await service.onModuleInit();
-            expect(mockUsersService.createSeedAdmin).toHaveBeenCalled();
+            expect(mockTenantRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+                name: 'Internal Pricify',
+                isActive: true,
+            }));
+            expect(mockUsersService.createSeedAdmin).toHaveBeenCalledWith(expect.objectContaining({
+                email: 'admin@example.test',
+                firstName: 'Initial',
+                lastName: 'Admin',
+                password: 'hashed-admin-password',
+                role: UserRole.ADMIN,
+                tenantId: 1,
+            }));
         });
     });
 
@@ -154,7 +192,6 @@ describe('AuthService', () => {
 
             const result = await service.invite(dto, { tenantId: 1 });
             
-            expect(mockTenantUsageService.assertCanInviteUser).toHaveBeenCalledWith(1);
             expect(mockUsersService.createInvitedUser).toHaveBeenCalled();
             expect(mockUsersService.update).toHaveBeenCalledWith(2, { hotelIds: [1] });
             expect(mockMailService.sendUserInvitation).toHaveBeenCalled();
@@ -171,7 +208,6 @@ describe('AuthService', () => {
 
             await service.invite({ email: 'admin@test.com', role: UserRole.ADMIN }, { tenantId: 1 });
             
-            expect(mockTenantUsageService.assertCanInviteUser).toHaveBeenCalledWith(1);
             expect(mockUsersService.createInvitedUser).toHaveBeenCalled();
             expect(mockUsersService.update).not.toHaveBeenCalled(); // Admins don't get specific hotels assigned
             expect(mockMailService.sendUserInvitation).toHaveBeenCalled();
@@ -183,7 +219,6 @@ describe('AuthService', () => {
 
             await service.invite({ email: 'agent@test.com', role: UserRole.AGENT, hotelIds: [1] }, { tenantId: 1 });
 
-            expect(mockTenantUsageService.assertCanInviteUser).toHaveBeenCalledWith(1);
             expect(mockUsersService.createInvitedUser).toHaveBeenCalledWith(expect.objectContaining({
                 email: 'agent@test.com',
                 role: UserRole.AGENT,
@@ -193,26 +228,6 @@ describe('AuthService', () => {
             expect(mockMailService.sendUserInvitation).toHaveBeenCalled();
         });
 
-        it('should reject SUPERVISOR invites through the tenant invite flow', async () => {
-            await expect(service.invite({ email: 'boss@test.com', role: UserRole.SUPERVISOR } as any, { tenantId: 1 }))
-                .rejects
-                .toThrow('This role cannot be invited to a tenant.');
-
-            expect(mockTenantUsageService.assertCanInviteUser).not.toHaveBeenCalled();
-            expect(mockUsersService.createInvitedUser).not.toHaveBeenCalled();
-            expect(mockMailService.sendUserInvitation).not.toHaveBeenCalled();
-        });
-
-        it('should reject invites when the plan user limit is reached', async () => {
-            mockTenantUsageService.assertCanInviteUser.mockRejectedValue(new BadRequestException('User limit reached for current plan.'));
-
-            await expect(service.invite({ email: 'admin@test.com', role: UserRole.ADMIN }, { tenantId: 1 }))
-                .rejects
-                .toThrow('User limit reached for current plan.');
-
-            expect(mockUsersService.createInvitedUser).not.toHaveBeenCalled();
-            expect(mockMailService.sendUserInvitation).not.toHaveBeenCalled();
-        });
     });
 
     describe('acceptInvite', () => {

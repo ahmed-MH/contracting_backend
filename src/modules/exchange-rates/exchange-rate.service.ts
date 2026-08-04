@@ -36,7 +36,7 @@ export class ExchangeRateService {
             rate: createDto.rate,
             hotelId,
             effectiveDate,
-            source: createDto.source ?? ExchangeRateSource.MANUAL,
+            source: ExchangeRateSource.MANUAL,
             updatedBy: this.auditService.legacyActorLabel(actor),
         } as Partial<ExchangeRate>);
         this.auditService.applyCreateAudit(rate, actor);
@@ -79,7 +79,7 @@ export class ExchangeRateService {
         rate.toCurrency = toCurrency;
         rate.rate = nextRate;
         rate.effectiveDate = effectiveDate;
-        if (updateDto.source) rate.source = updateDto.source;
+        rate.source = ExchangeRateSource.MANUAL;
         rate.updatedBy = this.auditService.legacyActorLabel(actor);
         this.auditService.applyUpdateAudit(rate, actor);
 

@@ -5,6 +5,8 @@ import { TemplateSupplement } from './entities/template-supplement.entity';
 import { Hotel } from '../../hotel/entities/hotel.entity';
 import { NotFoundException } from '@nestjs/common';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
+import { AuditService } from '../../../common/audit/audit.service';
+import { createAuditServiceMock } from '../../../test-utils/audit-service.mock';
 
 describe('TemplateSupplementService - Tests Unitaires 💵', () => {
     let service: TemplateSupplementService;
@@ -38,6 +40,7 @@ describe('TemplateSupplementService - Tests Unitaires 💵', () => {
                 TemplateSupplementService,
                 { provide: getRepositoryToken(TemplateSupplement), useValue: mockRepo },
                 { provide: getRepositoryToken(Hotel), useValue: mockHotelRepo },
+                { provide: AuditService, useValue: createAuditServiceMock() },
             ],
         }).compile();
 

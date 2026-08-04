@@ -4,6 +4,8 @@ import { TemplateEarlyBookingService } from './template-early-booking.service';
 import { TemplateEarlyBooking } from './entities/template-early-booking.entity';
 import { NotFoundException } from '@nestjs/common';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
+import { AuditService } from '../../../common/audit/audit.service';
+import { createAuditServiceMock } from '../../../test-utils/audit-service.mock';
 
 describe('TemplateEarlyBookingService - Tests Unitaires ⏱️', () => {
     let service: TemplateEarlyBookingService;
@@ -32,6 +34,7 @@ describe('TemplateEarlyBookingService - Tests Unitaires ⏱️', () => {
             providers: [
                 TemplateEarlyBookingService,
                 { provide: getRepositoryToken(TemplateEarlyBooking), useValue: mockRepo },
+                { provide: AuditService, useValue: createAuditServiceMock() },
             ],
         }).compile();
 

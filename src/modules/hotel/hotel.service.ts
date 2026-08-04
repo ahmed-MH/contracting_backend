@@ -12,7 +12,6 @@ import { RequestUser } from '../../common/interfaces/request.interface';
 import { AuditService } from '../../common/audit/audit.service';
 import { HotelBankAccount } from './entities/hotel-bank-account.entity';
 import { AuditActor } from '../../common/audit/audit.types';
-import { TenantUsageService } from '../subscriptions/tenant-usage.service';
 
 interface UploadedLogoFile {
     mimetype: string;
@@ -33,16 +32,11 @@ export class HotelService {
         @InjectRepository(HotelBankAccount)
         private readonly hotelBankAccountRepo: Repository<HotelBankAccount>,
         private readonly auditService: AuditService,
-        private readonly tenantUsageService: TenantUsageService,
     ) { }
 
     // ─── Hotel ────────────────────────────────────────────────────────
 
     async createHotel(dto: CreateHotelDto, currentUser: RequestUser): Promise<Hotel> {
-        if (currentUser.tenantId) {
-            await this.tenantUsageService.assertCanCreateHotel(currentUser.tenantId);
-        }
-
         const actor = await this.auditService.resolveActor(currentUser);
         const { bankAccounts, ...hotelFields } = dto;
         const normalizedBankAccounts = this.normalizeBankAccounts(bankAccounts, hotelFields);
@@ -70,10 +64,6 @@ export class HotelService {
             return this.hotelRepo.findOne({ where: { id }, relations: ['bankAccounts'] });
         }
 
-        if (user.role === UserRole.SUPERVISOR) {
-            return this.hotelRepo.findOne({ where: { id }, relations: ['bankAccounts'] });
-        }
-
         if (user.role === UserRole.ADMIN) {
             const tenantCondition = user.tenantId ?? IsNull();
             return this.hotelRepo.findOne({ where: { id, tenantId: tenantCondition }, relations: ['bankAccounts'] });
@@ -91,10 +81,6 @@ export class HotelService {
 
     async findAllHotels(user?: { id: number; role: UserRole; tenantId: number | null }): Promise<Hotel[]> {
         if (!user) return this.hotelRepo.find({ relations: ['bankAccounts'] });
-
-        if (user.role === UserRole.SUPERVISOR) {
-            return this.hotelRepo.find({ relations: ['bankAccounts'] });
-        }
 
         if (user.role === UserRole.ADMIN) {
             return this.hotelRepo.find({
@@ -221,7 +207,7 @@ export class HotelService {
     }
 
     private async findArchivedHotelById(id: number, currentUser?: RequestUser): Promise<Hotel | null> {
-        if (!currentUser || currentUser.role === UserRole.SUPERVISOR) {
+        if (!currentUser) {
             return this.hotelRepo.findOne({
                 withDeleted: true,
                 where: { id, deletedAt: Not(IsNull()) },

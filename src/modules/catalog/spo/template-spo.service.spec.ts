@@ -5,6 +5,8 @@ import { TemplateSpo } from './entities/template-spo.entity';
 import { NotFoundException } from '@nestjs/common';
 import { PageOptionsDto } from '../../../common/dto/page-options.dto';
 import { SpoBenefitType, SpoConditionType } from '../../../common/constants/enums';
+import { AuditService } from '../../../common/audit/audit.service';
+import { createAuditServiceMock } from '../../../test-utils/audit-service.mock';
 
 describe('TemplateSpoService - Tests Unitaires 🎁', () => {
     let service: TemplateSpoService;
@@ -41,6 +43,7 @@ describe('TemplateSpoService - Tests Unitaires 🎁', () => {
                     provide: getRepositoryToken(TemplateSpo),
                     useValue: mockSpoRepo,
                 },
+                { provide: AuditService, useValue: createAuditServiceMock() },
             ],
         }).compile();
 

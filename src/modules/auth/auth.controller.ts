@@ -58,7 +58,7 @@ export class AuthController {
 
     @Get('me')
     @AllowSuspendedTenant()
-    @Roles(UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.COMMERCIAL)
+    @Roles(UserRole.ADMIN, UserRole.COMMERCIAL, UserRole.AGENT)
     getProfile(@Request() req: { user: { id: number; email: string; role: string } }) {
         return req.user;
     }

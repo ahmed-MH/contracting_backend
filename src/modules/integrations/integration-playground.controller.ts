@@ -1,9 +1,7 @@
-import { Body, Controller, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Req, Res } from '@nestjs/common';
 import { UserRole } from '../../common/constants/enums';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { RequiresPlanApiAccess } from '../../common/decorators/requires-plan-api-access.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { PlanEntitlementsGuard } from '../../common/guards/plan-entitlements.guard';
 import { AuthenticatedRequest, RequestUser } from '../../common/interfaces/request.interface';
 import { IntegrationQuoteService } from './integration-quote.service';
 
@@ -14,8 +12,6 @@ type MutableJsonResponse = {
 
 @Controller('admin/integrations/playground/reservations')
 @Roles(UserRole.ADMIN)
-@RequiresPlanApiAccess()
-@UseGuards(PlanEntitlementsGuard)
 export class IntegrationPlaygroundController {
     constructor(private readonly integrationQuoteService: IntegrationQuoteService) { }
 

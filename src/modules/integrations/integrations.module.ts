@@ -8,8 +8,6 @@ import { Arrangement } from '../hotel/entities/arrangement.entity';
 import { Hotel } from '../hotel/entities/hotel.entity';
 import { RoomType } from '../hotel/entities/room-type.entity';
 import { SimulationModule } from '../simulation/simulation.module';
-import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
-import { PlanEntitlementsGuard } from '../../common/guards/plan-entitlements.guard';
 import { IntegrationApiKeysController } from './integration-api-keys.controller';
 import { IntegrationApiKeysService } from './integration-api-keys.service';
 import { IntegrationApiUsageLogsService } from './integration-api-usage-logs.service';
@@ -32,7 +30,6 @@ import { IntegrationEndpoint } from './entities/integration-endpoint.entity';
     imports: [
         ExchangeRatesModule,
         SimulationModule,
-        SubscriptionsModule,
         TypeOrmModule.forFeature([
             Hotel,
             Affiliate,
@@ -62,7 +59,6 @@ import { IntegrationEndpoint } from './entities/integration-endpoint.entity';
         IntegrationApiUsageLogsService,
         IntegrationOverviewService,
         IntegrationQuoteService,
-        PlanEntitlementsGuard,
     ],
 })
 export class IntegrationsModule { }
